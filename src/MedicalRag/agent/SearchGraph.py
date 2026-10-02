@@ -20,7 +20,7 @@ from langchain_core.runnables import (
     RunnablePassthrough, RunnableParallel, RunnableLambda, RunnableMap
 )
 from functools import partial
-from .tools import tencent_cloud_search
+from .tools import tavily_search
 import logging
 from ..core.utils import create_llm_client
 from ..config.models import AppConfig
@@ -255,7 +255,7 @@ def judge(
 
 
 class SearchGraph:
-    def __init__(self, config: AppConfig, power_model: BaseChatModel, websearch_func=tencent_cloud_search) -> None:
+    def __init__(self, config: AppConfig, power_model: BaseChatModel, websearch_func=tavily_search) -> None:
         self.config = config
         self.agent_tools = AgentTools(self.config)
         self.agent_tools.register_websearch(websearch_func)

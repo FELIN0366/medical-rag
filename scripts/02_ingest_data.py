@@ -14,7 +14,6 @@ def main():
     config_manager = ConfigLoader()
     # config_manager.change({"milvus.auto_id": True})  # 自动管理id
     data = load_dataset("json", data_files="data/qa_50000.jsonl", split="train")
-    data = data.select(range(100))  # 快速体验插入100条数据
     print(f"配置加载成功")
     print(f"   集合名称: {config_manager.config.milvus.collection_name}")
     

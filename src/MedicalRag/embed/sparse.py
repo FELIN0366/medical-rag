@@ -39,8 +39,8 @@ def _cut_worker(text: str) -> List[str]:
 class Vocabulary:
     """维护 token->id 与 id->df，用于稀疏向量化"""
     def __init__(self):
-        self.token2id: Dict[str, int] = {}
-        self.df: Dict[int, int] = {}
+        self.token2id: Dict[str, int] = {} # 每个词对应哪个稀疏向量维度
+        self.df: Dict[int, int] = {} # 每个词出现在多少篇文档中
         self.N: int = 0            # 文档总数
         self.sum_dl: int = 0       # 所有文档长度之和（可选，用于 avgdl）
         # 可选：冻结后缓存
@@ -163,7 +163,7 @@ class BM25Vectorizer:
         if update_vocab:
             self.vocab.add_document(tokens)
 
-        # 查询阶段要容忍 OOV
+        # 查询阶段要容忍 OOV：词频TF
         tf: Dict[int, int] = {}
         for t in tokens:
             tid = self.vocab.token2id.get(t)

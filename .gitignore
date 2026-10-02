@@ -29,3 +29,7 @@ out/
 .nuxt/
 .storybook-out/
 
+# 大文件忽略
+data/
+Milvus/volumes/
+

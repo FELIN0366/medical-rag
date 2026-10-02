@@ -44,9 +44,9 @@ class SplitQuery(BaseModel):
 
 class MedicalAgentState(TypedDict, total=False):
     # 会话与用户画像
-    dialogue_messages: List[BaseMessage]
+    dialogue_messages: List[BaseMessage] # 正式问答历史
     asking_messages: List[List[BaseMessage]]  # 二维：每轮对话的追问消息列表
-    background_info: str
+    background_info: str # 从追问中抽取出的用户背景，比如“腹痛2天、腹泻、无发热”等
     ask_obj: AskMess
     multi_summary: List[str]     # 跨轮摘要，供下轮 judge_split_query 参考
     running_summary: str         # 压缩后的历史摘要（超过8条时触发压缩）
@@ -172,8 +172,8 @@ def judge_split_query(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAg
     fixing = OutputFixingParser.from_llm(parser=parser, llm=llm)
 
     # 合并压缩摘要与近期摘要
-    running = state.get("running_summary", "")
-    recent = "\n".join(state.get("multi_summary", []))
+    running = state.get("running_summary", "") # 压缩后的长期摘要
+    recent = "\n".join(state.get("multi_summary", [])) # 近期多轮摘要
     summary_context = (running + "\n" + recent).strip() if running else recent
 
     prompt = ChatPromptTemplate.from_messages([
@@ -306,6 +306,7 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
         else:
             state["rewritten_query"] = state["curr_input"]
 
+    # 多轮摘要和长期记忆
     # 更新多轮摘要
     short_summary = f"问：{state['curr_input']}\n答：{final_answer[:300]}"
     state["multi_summary"].append(short_summary)
@@ -341,8 +342,8 @@ class MedicalAgent:
     def __init__(self, config: AppConfig, power_model: BaseChatModel) -> None:
         self.config = config
         self.power_model = power_model
-        self.normal_llm = create_llm_client(self.config.llm)
-        self.search_graph = SearchGraph(self.config, power_model)
+        self.normal_llm = create_llm_client(self.config.llm) # 普通生成模型，用于追问、抽取背景、更新背景、最终汇总
+        self.search_graph = SearchGraph(self.config, power_model) # 用于真正执行检索、联网、RAG 和事实校验
         self.build_graph()
 
     def build_graph(self):
@@ -356,7 +357,10 @@ class MedicalAgent:
         g.add_node("answer",                 partial(gather_answer,           llm=self.normal_llm))
 
         # START → 条件路由：有背景则跳过追问
-        g.add_conditional_edges(START, route_entry, {
+        g.add_conditional_edges(
+            START, 
+            route_entry, 
+            {
             "ask": "ask",
             "check_update_background": "check_update_background",
         })

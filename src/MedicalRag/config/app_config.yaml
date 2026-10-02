@@ -9,13 +9,13 @@ embedding:
   summary_dense:
     provider: openai
     env_key_name: DASHSCOPE_API_KEY
-    model: text-embedding-v4
+    model: qwen3.7-text-embedding-flash
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     dimension: 1024
   text_dense:
     provider: openai
     env_key_name: DASHSCOPE_API_KEY
-    model: text-embedding-v4
+    model: qwen3.7-text-embedding-flash
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     dimension: 1024
   text_sparse:
@@ -31,9 +31,9 @@ embedding:
 
 llm:
   provider: openai
-  model: qwen3.5-plus
-  env_key_name: DASHSCOPE_API_KEY
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: deepseek-flash
+  env_key_name: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
   temperature: 0.1
 
 data:

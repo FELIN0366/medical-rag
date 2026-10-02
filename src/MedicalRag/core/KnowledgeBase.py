@@ -34,8 +34,8 @@ class MedicalHybridKnowledgeBase:
         self.embedding_config = app_config.embedding
         
         # 创建多个嵌入模型实例
-        self.summary_embedding = self._create_summary_embedding()
-        self.text_embedding = self._create_text_embedding()
+        self.summary_embedding = self._create_summary_embedding() # 稠密向量
+        self.text_embedding = self._create_text_embedding() # 稠密向量
         
         # 向量存储实例
         self.client = MilvusClient(uri=self.milvus_config.uri, token=self.milvus_config.token)            

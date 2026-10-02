@@ -2,7 +2,9 @@
 RAG基础评测
 """
 import logging
+import argparse
 from MedicalRag.config.loader import ConfigLoader
+from MedicalRag.config.models import SearchRequest, SingleSearchRequest
 from MedicalRag.rag.SimpleRag import SimpleRAG
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings  
 import os
@@ -15,23 +17,43 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--single-retrieval",
+        action="store_true",
+        help="仅使用 summary_dense 单路检索进行评测",
+    )
+    args = parser.parse_args()
+
     # 加载配置
     config_manager = ConfigLoader()
+    search_config = None
+    if args.single_retrieval:
+        search_config = SearchRequest(
+            collection_name=config_manager.config.milvus.collection_name,
+            requests=[SingleSearchRequest(anns_field="summary_dense")],
+            output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
+            limit=10,
+        )
+        logger.info("单路检索评测已启用：summary_dense")
+
     # 创建基础RAG系统
-    rag = SimpleRAG(config_manager.config)
+    rag = SimpleRAG(config_manager.config, search_config=search_config)
     eval_data = load_dataset("json", data_files="data/eval/new_qa_200.jsonl", split="train")
+    llm_config = config_manager.config.llm
     qwen_llm = ChatOpenAI(
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
+        base_url=llm_config.base_url,
+        model=llm_config.model,
+        api_key=os.getenv(llm_config.env_key_name),
         temperature=0.0,
         extra_body={
             "enable_thinking": False
         }
     )
+    embedding_config = config_manager.config.embedding
     qwen_embedding = DashScopeEmbeddings(
-        model="text-embedding-v3",
-        dashscope_api_key=os.getenv("DASHSCOPE_API_KEY")
+        model=embedding_config.summary_dense.model,
+        dashscope_api_key=os.getenv(embedding_config.summary_dense.env_key_name)
     )
     eval = RagasRagEvaluate(rag_components=rag, eval_datasets=eval_data, eval_llm=qwen_llm, embedding=qwen_embedding)
     eval.do_sample(10)  # 根据需要进行快速修改
