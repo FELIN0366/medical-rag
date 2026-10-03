@@ -1,4 +1,4 @@
-"""Configuration and retrieval request models for the Stage 1 core schema."""
+"""Stage 1 核心 Schema 的配置与检索请求模型。"""
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,31 @@ class EmbeddingConfig(BaseModel):
     summary_dense: DenseConfig = Field(default_factory=DenseConfig)
     text_dense: DenseConfig = Field(default_factory=DenseConfig)
     text_sparse: SparseConfig = Field(default_factory=SparseConfig)
+
+
+class RerankerConfig(BaseModel):
+    """Stage 2 DashScope 重排服务配置。"""
+    provider: Literal["dashscope"] = "dashscope"
+    model: str = "qwen3.7-text-rerank"
+    api_key_env: str = "DASHSCOPE_API_KEY"
+    workspace_id_env: str = "DASHSCOPE_WORKSPACE_ID"
+    region: str = "cn-beijing"
+    top_n: int = Field(default=30, ge=1, le=30)
+    timeout: float = Field(default=30.0, gt=0)
+    max_retries: int = Field(default=3, ge=0, le=5)
+    instruct: str = (
+        "Given a medical question, rank passages by whether they contain evidence "
+        "that directly answers the question. Prefer directly supporting passages "
+        "over passages that are only topically related."
+    )
+
+
+class RetrievalStage2Config(BaseModel):
+    """Stage 2 固定的三路召回与重排参数。"""
+    per_route_k: int = Field(default=50, ge=1, le=500)
+    rrf_k: int = Field(default=60, ge=1, le=200)
+    candidate_k: int = Field(default=30, ge=1, le=100)
+    final_k: int = Field(default=5, ge=1, le=50)
 
 class LLMConfig(BaseModel):
     provider: Literal["openai", "ollama"] = "ollama"
@@ -56,6 +81,8 @@ class AgentConfig(BaseModel):
 class AppConfig(BaseModel):
     milvus: MilvusConfig
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    retrieval_stage2: RetrievalStage2Config = Field(default_factory=RetrievalStage2Config)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     data: DataConfig = Field(default_factory=DataConfig)
     multi_dialogue_rag: MultiDialogueRagConfig = Field(default_factory=MultiDialogueRagConfig)
@@ -80,6 +107,7 @@ class SearchRequest(BaseModel):
     query: str = ""
     collection_name: str = "medical_knowledge"
     requests: list[SingleSearchRequest] = Field(default_factory=lambda: [SingleSearchRequest()])
-    output_fields: list[OutputFields] = Field(default_factory=lambda: ["text", "summary", "document"])
+    # 主键是评测 Gold、重排审计与下游引用候选的稳定标识，不能依赖 Milvus 命中对象的隐式 id。
+    output_fields: list[OutputFields] = Field(default_factory=lambda: ["pk", "text", "summary", "document"])
     fuse: Optional[FusionSpec] = Field(default_factory=FusionSpec)
-    limit: int = Field(default=5, gt=0, le=10)
+    limit: int = Field(default=5, gt=0, le=500)

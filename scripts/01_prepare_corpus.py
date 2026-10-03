@@ -29,6 +29,7 @@ def main() -> None:
         "qa_sampled_count": len(corpus.qa_chunks), "seed": args.seed, "strategy": args.strategy,
         "pdf_count": kinds["pdf"], "html_count": kinds["html"], "markdown_count": kinds["markdown"],
         "ignored_unsupported_file_count": sum(1 for item in corpus.inventory if item["status"] == "ignored_unsupported"),
+        "ignored_non_corpus_file_count": sum(1 for item in corpus.inventory if item["status"] == "ignored_non_corpus"),
         "parse_failure_count": len(corpus.parse_failures), "parse_failures": corpus.parse_failures,
         "parsed_document_count": len(corpus.documents), "literature_chunk_count": len(corpus.literature_chunks),
         "total_unit_count": len(corpus.chunks), "mean_chunk_chars": round(statistics.mean(lengths), 2) if lengths else 0,
@@ -44,7 +45,7 @@ def main() -> None:
         for chunk in samples:
             stream.write(json.dumps(chunk.model_dump(), ensure_ascii=False) + "\n")
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    print("\nSamples:")
+    print("\n样本：")
     for chunk in samples:
         print(json.dumps({"source": chunk.source, "source_name": chunk.source_name, "title": chunk.title,
                           "section_path": chunk.section_path, "summary": chunk.summary,

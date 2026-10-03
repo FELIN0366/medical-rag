@@ -30,7 +30,7 @@ def run_route(kb, config, query: str, name: str, requests: list[SingleSearchRequ
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke", action="store_true", required=True)
+    parser.add_argument("--smoke", action="store_true", required=False)
     args = parser.parse_args()
     config = ConfigLoader().config
     kb = MedicalHybridKnowledgeBase(config)

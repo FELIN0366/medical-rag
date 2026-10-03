@@ -17,8 +17,11 @@ def scan_data(data_dir: Path) -> tuple[list[SourceFile], list[dict]]:
     for path in sorted(candidate for candidate in data_dir.rglob("*") if candidate.is_file()):
         relative = path.relative_to(data_dir).as_posix()
         suffix = path.suffix.lower()
+        # 数据目录说明和评测集不是医学语料，但仍必须出现在 inventory 中。
+        if relative == "README.md" or relative.startswith("eval/"):
+            kind, status = "non_corpus", "ignored_non_corpus"
         # 已知 HuatuoQA 是独立 QA 入口，不属于通用 JSON Parser。
-        if path.name == "qa_50000.jsonl":
+        elif path.name == "qa_50000.jsonl":
             kind, status = "qa", "supported"
         elif suffix == ".pdf":
             kind, status = "pdf", "supported"

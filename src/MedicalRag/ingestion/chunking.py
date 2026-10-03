@@ -70,24 +70,43 @@ def _table_chunks(text: str, max_chars: int) -> list[str]:
     return output
 
 
-def _recursive_chunks(text: str, max_chars: int, overlap: int) -> list[str]:
+RECURSIVE_SEPARATORS = ("\n\n", "\n", "。", "；", "，")
+
+
+def _recursive_chunks(text: str, max_chars: int, overlap: int, separator_index: int = 0) -> list[str]:
     if len(text) <= max_chars:
         return [text]
-    for separator in ("\n\n", "\n", "。", "；", "，"):
-        parts = text.split(separator)
-        if len(parts) > 1:
-            joined = [p + separator for p in parts[:-1]] + [parts[-1]]
-            result, current = [], ""
-            for part in joined:
-                if current and len(current) + len(part) > max_chars:
-                    result.append(current)
-                    current = current[-overlap:] + part
-                else:
-                    current += part
+    if separator_index >= len(RECURSIVE_SEPARATORS):
+        return _hard_split(text, max_chars, overlap)
+
+    separator = RECURSIVE_SEPARATORS[separator_index]
+    if separator not in text:
+        return _recursive_chunks(text, max_chars, overlap, separator_index + 1)
+
+    parts = text.split(separator)
+    pieces = [part + separator for part in parts[:-1]] + [parts[-1]]
+    result: list[str] = []
+    current = ""
+    for piece in pieces:
+        if not piece:
+            continue
+        # 当前层分隔后仍过长时，必须继续使用下一优先级分隔符。
+        if len(piece) > max_chars:
             if current:
                 result.append(current)
-            return result
-    return _hard_split(text, max_chars, overlap)
+                current = ""
+            result.extend(_recursive_chunks(piece, max_chars, overlap, separator_index + 1))
+            continue
+        if current and len(current) + len(piece) > max_chars:
+            result.append(current)
+            prefix = current[-overlap:] if overlap else ""
+            # overlap 加上新片段仍超长时，优先保证长度不变量。
+            current = prefix + piece if len(prefix) + len(piece) <= max_chars else piece
+        else:
+            current += piece
+    if current:
+        result.append(current)
+    return result
 
 
 def chunk_document(document: ParsedDocument, strategy: str = "structural", max_chars: int = 600,

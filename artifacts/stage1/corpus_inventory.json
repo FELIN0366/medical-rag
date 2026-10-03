@@ -1,20 +1,20 @@
 [
   {
     "path": "README.md",
-    "kind": "markdown",
-    "status": "supported",
+    "kind": "non_corpus",
+    "status": "ignored_non_corpus",
     "bytes": 755
   },
   {
     "path": "eval/change_data.py",
-    "kind": "unsupported",
-    "status": "ignored_unsupported",
+    "kind": "non_corpus",
+    "status": "ignored_non_corpus",
     "bytes": 5141
   },
   {
     "path": "eval/new_qa_200.jsonl",
-    "kind": "unsupported",
-    "status": "ignored_unsupported",
+    "kind": "non_corpus",
+    "status": "ignored_non_corpus",
     "bytes": 476346
   },
   {

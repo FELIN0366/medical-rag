@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -104,33 +104,67 @@ class MedicalHybridKnowledgeBase:
                                  ("source", 4096), ("source_name", 4096), ("doc_id", 4096),
                                  ("department", 4096), ("title", 4096), ("section_path", 4096)):
                 row[field] = fit_varchar(str(row[field] or ""), limit)
-            row["summary_dense"] = self.summary_embedding.embed_documents([row["summary"]])[0]
-            row["text_dense"] = self.text_embedding.embed_documents([row["text"]])[0]
             rows.append(row)
+
+        # 当前 DashScope 模型单次最多接受 20 条输入；逐行请求会把 350 条
+        # 语料放大为 700 次网络往返，既慢也更容易触发限流。
+        batch_size = 20
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
+            summary_vectors = self.summary_embedding.embed_documents([row["summary"] for row in batch])
+            text_vectors = self.text_embedding.embed_documents([row["text"] for row in batch])
+            if len(summary_vectors) != len(batch) or len(text_vectors) != len(batch):
+                raise RuntimeError("Embedding 服务返回的向量数量与输入记录数量不一致")
+            for row, summary_vector, text_vector in zip(batch, summary_vectors, text_vectors):
+                row["summary_dense"] = summary_vector
+                row["text_dense"] = text_vector
         if rows:
             insert_rows(self.client, self.milvus_config.collection_name, rows, show_progress=True)
         return len(rows)
 
-    def _encode_query(self, query: str, anns_field: str):
+    def encode_query_vectors(self, query: str, anns_fields: Iterable[str]) -> dict[str, list[float] | str]:
+        """为选中的检索路由生成查询向量；相同 dense 配置只调用一次。"""
+        fields = set(anns_fields)
+        vectors: dict[str, list[float] | str] = {}
+        dense_fields = fields & {"summary_dense", "text_dense"}
+        if dense_fields:
+            same_dense_config = self.embedding_config.summary_dense.model_dump() == self.embedding_config.text_dense.model_dump()
+            if same_dense_config:
+                vector = self.summary_embedding.embed_query(query)
+                for field in dense_fields:
+                    vectors[field] = vector
+            else:
+                if "summary_dense" in dense_fields:
+                    vectors["summary_dense"] = self.summary_embedding.embed_query(query)
+                if "text_dense" in dense_fields:
+                    vectors["text_dense"] = self.text_embedding.embed_query(query)
+        if "text_sparse" in fields:
+            vectors["text_sparse"] = query
+        return vectors
+
+    def _encode_query(self, query: str, anns_field: str, encoded_queries: Mapping[str, list[float] | str] | None = None):
+        if encoded_queries and anns_field in encoded_queries:
+            return encoded_queries[anns_field]
         if anns_field == "summary_dense":
             return self.summary_embedding.embed_query(query)
         if anns_field == "text_dense":
             return self.text_embedding.embed_query(query)
         if anns_field == "text_sparse":
-            return query  # Milvus BM25 owns sparse query analysis and encoding.
+            return query  # 稀疏查询的分析与编码由 Milvus BM25 负责。
         raise ValueError(f"Unsupported ANN field: {anns_field}")
 
-    def _single_search(self, query: str, request: SingleSearchRequest, collection: str, fields: list[str]):
-        return self.client.search(collection_name=collection, data=[self._encode_query(query, request.anns_field)],
+    def _single_search(self, query: str, request: SingleSearchRequest, collection: str, fields: list[str],
+                       encoded_queries: Mapping[str, list[float] | str] | None = None):
+        return self.client.search(collection_name=collection, data=[self._encode_query(query, request.anns_field, encoded_queries)],
                                   anns_field=request.anns_field, filter=request.expr or "", limit=request.limit,
                                   output_fields=fields,
                                   search_params={"metric_type": request.metric_type, "params": request.search_params})[0]
 
-    def search(self, req: SearchRequest) -> list[Document]:
+    def search(self, req: SearchRequest, encoded_queries: Mapping[str, list[float] | str] | None = None) -> list[Document]:
         if len(req.requests) == 1:
-            hits = self._single_search(req.query, req.requests[0], req.collection_name, req.output_fields)
+            hits = self._single_search(req.query, req.requests[0], req.collection_name, req.output_fields, encoded_queries)
         else:
-            requests = [AnnSearchRequest(data=[self._encode_query(req.query, item.anns_field)], anns_field=item.anns_field,
+            requests = [AnnSearchRequest(data=[self._encode_query(req.query, item.anns_field, encoded_queries)], anns_field=item.anns_field,
                 param={"metric_type": item.metric_type, "params": item.search_params}, limit=item.limit,
                 expr=item.expr or "") for item in req.requests]
             ranker = RRFRanker(req.fuse.k) if req.fuse and req.fuse.method == "rrf" else WeightedRanker(*(req.fuse.weights if req.fuse else [1.0] * len(requests)))

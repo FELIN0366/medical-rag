@@ -1,0 +1,74 @@
+{
+  "fixed_hybrid": {
+    "qa": {
+      "query_count": 30,
+      "candidate_recall_at_30": 1.0,
+      "recall_at_5": 0.9666666666666667,
+      "mrr": 0.95,
+      "ndcg_at_5": 0.9543643251190486
+    },
+    "literature": {
+      "query_count": 20,
+      "candidate_recall_at_30": 1.0,
+      "recall_at_5": 1.0,
+      "mrr": 0.7583333333333333,
+      "ndcg_at_5": 0.7653116063272348
+    },
+    "cross_corpus": {
+      "query_count": 5,
+      "candidate_recall_at_30": 0.0,
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "ndcg_at_5": 0.252371901428583
+    },
+    "config": "S+T+B / Top-50 each / RRF(60) / Candidate Top-30 / Final Top-5"
+  },
+  "fixed_rerank": {
+    "qa": {
+      "query_count": 30,
+      "candidate_recall_at_30": 1.0,
+      "recall_at_5": 1.0,
+      "mrr": 1.0,
+      "ndcg_at_5": 1.0
+    },
+    "literature": {
+      "query_count": 20,
+      "candidate_recall_at_30": 1.0,
+      "recall_at_5": 1.0,
+      "mrr": 0.975,
+      "ndcg_at_5": 0.9339118017847948
+    },
+    "cross_corpus": {
+      "query_count": 5,
+      "candidate_recall_at_30": 0.0,
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "ndcg_at_5": 0.4559284135897828
+    },
+    "config": "Fixed Hybrid Candidate Top-30 + qwen3.7-text-rerank Top-5"
+  },
+  "agent_rerank": {
+    "qa": {
+      "query_count": 30,
+      "candidate_recall_at_30": 1.0,
+      "recall_at_5": 1.0,
+      "mrr": 1.0,
+      "ndcg_at_5": 1.0
+    },
+    "literature": {
+      "query_count": 20,
+      "candidate_recall_at_30": 1.0,
+      "recall_at_5": 1.0,
+      "mrr": 0.975,
+      "ndcg_at_5": 0.9339118017847948
+    },
+    "cross_corpus": {
+      "query_count": 5,
+      "candidate_recall_at_30": 0.0,
+      "recall_at_5": 0.0,
+      "mrr": 0.0,
+      "ndcg_at_5": 0.4559284135897828
+    },
+    "config": "Planner selected subset + same Reranker Top-5"
+  }
+}

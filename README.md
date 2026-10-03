@@ -6,7 +6,7 @@
 
 ## 🌟 项目亮点
 
-- **专业医疗领域优化**：支持领域稀疏向量计算，可直接通过配置完成领域词表管理；也可以使用原生的Milvus进行稀疏向量管理
+- **专业医疗领域检索**：Stage 1 使用 Milvus 托管 BM25；文本经 Jieba Analyzer 和 `FunctionType.BM25` 生成稀疏向量
 - **多向量混合检索**：稠密向量 + 稀疏向量(BM25) 的混合检索策略
 - **灵活的架构设计**：支持一键配置多种LLM提供商（OpenAI、Ollama）和嵌入模型
 - **完整的数据流水线**：从数据预处理、入库到检索问答、以及评估的端到端解决方案
@@ -76,7 +76,6 @@ conda env create -f environment.yml  # 创建虚拟环境
 ```bash
 conda activate rag
 cd src
-python -m pip install --no-build-isolation pkuseg  # 安装依赖包
 pip install -e .
 ```
 
@@ -84,7 +83,7 @@ pip install -e .
 
 **启动 Milvus 向量数据库**
 
-由于本项目默认可以采用稀疏向量管理，所以需要使用客户端Milvus。
+Stage 1 使用 Docker `milvusdb/milvus:v2.6.0` standalone，服务端点为 `http://localhost:19530`。稠密字段使用 HNSW/COSINE；`text` 经 Jieba Analyzer 和 `FunctionType.BM25` 生成稀疏字段，并使用 `SPARSE_INVERTED_INDEX`。本项目不配置或回退到 Milvus Lite。
 
 ```bash
 # 使用项目提供的脚本
@@ -130,21 +129,21 @@ milvus:
   uri: http://localhost:19530
   token: null
   collection_name: medical_knowledge
-  drop_old: true  # 第一次建库时，是否删除同名 collection，调试用，生产环境严禁使用
-  auto_id: false  # 可选是否自动生成id，否则采用hash值作为id自动去重
+  drop_old: false
 
 # 嵌入模型配置（支持多向量字段）
 embedding:
   summary_dense:      # 问题/摘要 向量（稠密）
-    provider: ollama  # 可选openai接口 或者 ollama库接口
-    model: bge-m3:latest  # 模型名称
-    env_key_name: DASHSCOPE_API_KEY  # 可选的api_key的环境变量名，否则默认使用`openai_ky`
-    base_url: http://localhost:11434  # 请求接口
+    provider: openai
+    env_key_name: DASHSCOPE_API_KEY
+    model: qwen3.7-text-embedding-flash
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     dimension: 1024  # 编码的向量维度
   text_dense:         # 主文本向量（稠密）
-    provider: ollama  
-    model: bge-m3:latest
-    base_url: http://localhost:11434
+    provider: openai
+    env_key_name: DASHSCOPE_API_KEY
+    model: qwen3.7-text-embedding-flash
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     dimension: 1024
   text_sparse:        # 仅由 Milvus 内置 BM25 生成
     provider: Milvus
@@ -158,8 +157,6 @@ llm:
 
 # 数据字段映射
 data:
-  summary_field: question    # 问题字段
-  document_field: answer     # 答案字段
   default_source: qa
   default_source_name: huatuo_qa
 
@@ -202,6 +199,8 @@ python scripts/02_ingest_data.py --qa-sample-size 200 --seed 42 --strategy struc
 python scripts/03_search_data.py --smoke
 ```
 
+上述命令会生成 `artifacts/stage1/` 中的 inventory、准备、入库和 Smoke 报告。默认 `summary_dense` 与 `text_dense` 使用 DashScope OpenAI-compatible 的 `qwen3.7-text-embedding-flash` 生成 1024 维语义向量；它们与 Milvus HNSW/COSINE、BM25 和 RRF 共同构成正式 Stage 1 检索链路。`LocalHashEmbeddings` 仍保留为无网络或无密钥时的离线调试回退，但不参与正式检索实验。Smoke 只能证明链路运行与结果可返回，不代表 Recall、性能或医疗问答正确率。
+
 **数据格式示例：**
 
 ```json
@@ -216,17 +215,13 @@ source和source_name可不指定，但需要配置默认的数据源和数据源
 
 | 字段名        | 字段类型            | 说明                                                         |
 | ------------- | ------------------- | ------------------------------------------------------------ |
-| pk            | INT64 or VARCHAR    | 主键。当自动生成id时，使用INT64，否则使用varchar             |
-| text          | VARCHAR             | 核心知识文本。qa数据=summary+document；文献数据=document     |
-| summary       | VARCHAR             | 当前知识摘要。qa数据=question；文献数据=采样或者生成的摘要示例文本 |
-| document      | VARCHAR             | 原始文本。qa数据=answer；文献数据=原始文本                   |
-| source        | VARCHAR             | 数据源。暂只支持：qa和literature                             |
-| source_name   | VARCHAR             | 数据源名称。例如：huatuo、neikebook                          |
-| lt_doc_id     | VARCHAR             | 文档id。用于寻找同一个切片的文档                             |
-| chunk_id      | INT64               | 切片id。同一个切片的数据切片id相同，用于反查相关文档         |
-| summary_dense | FLOAT_VECTOR        | 摘要的稠密向量                                               |
-| text_dense    | FLOAT_VECTOR        | 知识的稠密向量                                               |
-| text_sparse   | SPARSE_FLOAT_VECTOR | 知识的稀疏向量，用于关键词匹配                               |
+| pk | VARCHAR 主键 | `doc_id + chunk_id + text` 的稳定哈希 |
+| text / summary / document | VARCHAR | 三路检索的文本表示 |
+| source / source_name | VARCHAR | `qa` 或 `literature` 及来源名称 |
+| doc_id / chunk_id | VARCHAR / INT64 | 文档与切片标识 |
+| department / title / section_path / page | 元数据 | 文献定位信息 |
+| summary_dense / text_dense | FLOAT_VECTOR(1024) | HNSW / COSINE dense 字段 |
+| text_sparse | SPARSE_FLOAT_VECTOR | Milvus BM25 稀疏字段 |
 
 #### 3. 混合检索
 
@@ -432,26 +427,15 @@ if __name__ == "__main__":
 
 | 特性 | 说明 |
 |------|------|
-| **医疗领域优化** | 使用pkuseg医疗分词、医疗停用词库 |
-| **混合检索** | 稠密向量+稀疏向量，召回率更高 |
-| **多向量架构** | 问题向量、文本向量、BM25向量独立优化 |
+| **医疗领域优化** | Milvus Jieba Analyzer 与内置 BM25 |
+| **混合检索** | summary dense、text dense 与 BM25 可经 RRF 融合 |
+| **多向量架构** | 问题/摘要、正文和关键词三路表示 |
 | **灵活配置** | 支持多种LLM/嵌入模型提供商 |
 | **生产就绪** | 完整的数据流水线和错误处理 |
 
-### 检索效果对比
+### 当前 Stage 1 验证范围
 
-| 检索方式 | 召回率 | 精确率 | 适用场景 |
-|----------|--------|--------|----------|
-| 仅稠密向量 | 70.12% | 85.64% | 语义相似问题 |
-| 仅BM25 | 61.08% | 70.90% | 关键词匹配 |
-| **混合检索** | **91.32%** | **92.15%** | **综合最佳** |
-
-### 支持的数据规模
-
-- **文档数量**: 支持百万级医疗文档
-- **并发查询**: 支持高并发检索请求
-- **响应时间**: < 500ms（混合检索）
-- **准确率**: 医疗领域问答准确率 > 85%
+当前提交验证了多源入库、1024 维向量字段、Milvus BM25、RRF 与来源过滤能在一个 Collection 中运行。未进行 Recall、Precision、延迟、吞吐量、百万规模或医疗问答准确率基准测试，因此不报告这些性能数字。
 
 ## 🚨 注意事项
 

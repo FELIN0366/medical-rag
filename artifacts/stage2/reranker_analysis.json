@@ -1,0 +1,43 @@
+{
+  "qa": {
+    "rescue_at_5": 0.03333333333333333,
+    "damage_at_5": 0.0,
+    "mean_best_gold_rank_gain": 0.3333333333333333,
+    "reranker_latency": {
+      "count": 30,
+      "p50_ms": 4852.173316001426,
+      "p95_ms": 6624.7243577439785,
+      "mean_ms": 4966.413506567672
+    },
+    "rescued_query_ids": [
+      "qa-29"
+    ],
+    "damaged_query_ids": []
+  },
+  "literature": {
+    "rescue_at_5": 0.0,
+    "damage_at_5": 0.0,
+    "mean_best_gold_rank_gain": 0.65,
+    "reranker_latency": {
+      "count": 20,
+      "p50_ms": 4167.978036988643,
+      "p95_ms": 4830.77908531268,
+      "mean_ms": 4186.974628196913
+    },
+    "rescued_query_ids": [],
+    "damaged_query_ids": []
+  },
+  "cross_corpus": {
+    "rescue_at_5": 0.0,
+    "damage_at_5": 0.0,
+    "mean_best_gold_rank_gain": 0.0,
+    "reranker_latency": {
+      "count": 5,
+      "p50_ms": 5078.6499379901215,
+      "p95_ms": 5809.67577759875,
+      "mean_ms": 4949.4997463945765
+    },
+    "rescued_query_ids": [],
+    "damaged_query_ids": []
+  }
+}
