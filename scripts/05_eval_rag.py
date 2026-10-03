@@ -32,7 +32,7 @@ def main():
         search_config = SearchRequest(
             collection_name=config_manager.config.milvus.collection_name,
             requests=[SingleSearchRequest(anns_field="summary_dense")],
-            output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
+            output_fields=["summary", "document", "source", "source_name", "doc_id", "chunk_id", "department", "title", "section_path", "page", "text"],
             limit=10,
         )
         logger.info("单路检索评测已启用：summary_dense")

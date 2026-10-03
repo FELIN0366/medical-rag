@@ -22,7 +22,7 @@ INSTALL_REQUIRES = [
 # Installation operation
 setup(
     name="MedicalRag",
-    packages=["MedicalRag"],
+    packages=find_packages(),
     author="weihua li",
     url="https://github.com/yolo-hyl/medical-rag",
     version="0.1.0",

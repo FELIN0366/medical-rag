@@ -1,0 +1,13 @@
+{
+  "collection_name": "medical_knowledge",
+  "recreated": true,
+  "qa_rows": 200,
+  "literature_chunks": 152,
+  "total_rows_inserted": 352,
+  "collection_row_count": 352,
+  "summary_dense_dim": 1024,
+  "text_dense_dim": 1024,
+  "sparse_bm25": "Milvus built-in BM25",
+  "strategy": "structural",
+  "elapsed_seconds": 6.611
+}

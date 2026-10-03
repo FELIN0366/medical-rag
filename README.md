@@ -27,12 +27,11 @@ medical-rag/
 │   │   ├── KnowledgeBase.py # 多向量知识库
 │   │   ├── HybridRetriever.py # 混合检索器
 │   │   ├── insert.py        # Milvus入库工具类
-│   │   ├── DBFactory.py     # 知识库工厂，并行检索时保证单例客户端的线程安全
-│   │   └── IngestionPipeline.py # 数据入库流水线
-│   ├── embed/               # 嵌入相关
-│   │   ├── vocab/           # 领域词表默认保存目录
-│   │   ├── sparse.py        # BM25稀疏向量实现
-│   │   └── bm25.py          # BM25适配器
+│   │   └── DBFactory.py     # 知识库工厂，并行检索时保证单例客户端的线程安全
+│   ├── ingestion/           # Stage 1 本地语料解析、Section Tree 与 Chunking
+│   │   ├── parsers/         # PDF / HTML / Markdown
+│   │   ├── chunking.py      # structural / fixed / recursive
+│   │   └── pipeline.py      # 不带 embedding/Milvus side effect 的语料构建
 │   ├── data/                # 数据处理
 │   │   └── annotation.py    # 自动标注系统
 │   ├── rag/                 # RAG核心
@@ -147,13 +146,8 @@ embedding:
     model: bge-m3:latest
     base_url: http://localhost:11434
     dimension: 1024
-  text_sparse:        # BM25稀疏向量
-    provider: self    # 或 "Milvus" 使用内置BM25
-    vocab_path_or_name: vocab.pkl.gz
-    algorithm: BM25
-    domain_model: medicine  # 医疗领域分词
-    k1: 1.5
-    b: 0.75
+  text_sparse:        # 仅由 Milvus 内置 BM25 生成
+    provider: Milvus
 
 # 大语言模型配置，与嵌入模型配置类似，对于请求模型有相同的字段
 llm:
@@ -189,36 +183,23 @@ agent:  # 智能体会沿用上述多轮对话rag的配置
 
 ### 3. 快速使用
 
-#### 1. 构建BM25词表（自管理模式）
-
-当配置 `embedding.text_sparse.provider: "self"` 时需要先构建词表：
-
-```bash
-conda activate rag
-python scripts/01_build_vocab.py
-```
-
-领域分词依赖 [pkuseg](https://github.com/lancopku/pkuseg-python) 库，更多领域可详见其项目主页。
-
-#### 2. 数据入库
+#### 1. Stage 1 语料准备与数据入库
 
 数据配置
 
 ```yaml
 data:
-  summary_field: question
-  document_field: answer
   default_source: qa
   default_source_name: huatuo_qa
-  default_lt_doc_id: ''
-  default_chunk_id: -1
 ```
 
 支持医疗QA数据的批量入库，自动处理多向量字段：
 
 ```bash
 conda activate rag
-python scripts/02_ingest_data.py
+python scripts/01_prepare_corpus.py --qa-sample-size 200 --seed 42 --strategy structural
+python scripts/02_ingest_data.py --qa-sample-size 200 --seed 42 --strategy structural --recreate
+python scripts/03_search_data.py --smoke
 ```
 
 **数据格式示例：**
@@ -366,27 +347,12 @@ llm:
 
 ### BM25配置选择
 
-**自管理BM25（推荐用于生产）:**
-```yaml
-embedding:
-  text_sparse:
-    provider: self
-    vocab_path_or_name: vocab.pkl.gz
-    domain_model: medicine    # 使用医疗分词模型，完美迁移其他领域
-    k1: 1.5                   # BM25参数调优
-    b: 0.75
-    build:
-      workers: 8              # 并行分词线程数
-      chunksize: 64
-```
+Stage 1 只支持 Milvus 托管的 BM25；自定义词表文件和自定义稀疏向量已删除。
 
-**Milvus内置BM25（简化版）:**
 ```yaml
 embedding:
   text_sparse:
-    provider: Milvus          # Milvus 2.5+支持
-    k1: 1.5
-    b: 0.75
+    provider: Milvus
 ```
 
 ### 混合检索策略调优

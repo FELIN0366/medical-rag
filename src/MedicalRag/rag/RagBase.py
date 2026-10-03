@@ -36,7 +36,7 @@ class BasicRAG(ABC):
             )
             ssr2 = SingleSearchRequest(
                 anns_field="text_sparse",
-                metric_type="IP", 
+                metric_type="BM25",
                 search_params={ "drop_ratio_search": 0.0 },
                 limit=10,
                 expr=""
@@ -49,7 +49,7 @@ class BasicRAG(ABC):
                 query="",
                 collection_name=config.milvus.collection_name,
                 requests=[ssr1, ssr2],
-                output_fields=["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"],
+                output_fields=["summary", "document", "source", "source_name", "doc_id", "chunk_id", "department", "title", "section_path", "page", "text"],
                 fuse=fuse,
                 limit=10
             )

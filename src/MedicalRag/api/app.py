@@ -19,7 +19,8 @@ from MedicalRag.agent.MedicalAgent import MedicalAgent
 from MedicalRag.agent.SearchGraph import SearchGraph
 from MedicalRag.config.loader import ConfigLoader
 from MedicalRag.config.models import FusionSpec, SearchRequest, SingleSearchRequest
-from MedicalRag.core.IngestionPipeline import IngestionPipeline
+from MedicalRag.core.KnowledgeBase import MedicalHybridKnowledgeBase
+from MedicalRag.ingestion.representations import make_qa_chunk
 from MedicalRag.core.utils import create_embedding_client, create_llm_client
 from MedicalRag.rag.MultiDialogueRag import MultiDialogueRag
 from MedicalRag.rag.SimpleRag import SimpleRAG
@@ -339,10 +340,12 @@ async def ingest(req: IngestRequest):
     """将医疗问答记录写入 Milvus 向量数据库。"""
     def _run():
         cfg = deepcopy(state["config"])
-        cfg.milvus.drop_old = req.drop_old
-        pipeline = IngestionPipeline(cfg)
-        success = pipeline.run(req.records)
-        return success
+        kb = MedicalHybridKnowledgeBase(cfg)
+        kb._create_collection(recreate=req.drop_old)
+        chunks = [make_qa_chunk(record, ordinal) for ordinal, record in enumerate(req.records)]
+        kb.add_chunks(chunks)
+        kb.build_index()
+        return True
 
     success = await run_sync(_run)
     return IngestResponse(
@@ -359,7 +362,7 @@ async def search_documents(req: SearchDocRequest):
         config = state["config"]
         kb = state["simple_rag"].knowledge_base
         collection_name = config.milvus.collection_name
-        output_fields = ["summary", "document", "source", "source_name", "lt_doc_id", "chunk_id", "text"]
+        output_fields = ["summary", "document", "source", "source_name", "doc_id", "chunk_id", "department", "title", "section_path", "page", "text"]
 
         if req.use_hybrid:
             requests = [
@@ -372,7 +375,7 @@ async def search_documents(req: SearchDocRequest):
                 ),
                 SingleSearchRequest(
                     anns_field="text_sparse",
-                    metric_type="IP",
+                    metric_type="BM25",
                     search_params={"drop_ratio_search": 0.0},
                     limit=req.limit * 2,
                     expr=req.filter_expr or "",

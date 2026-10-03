@@ -1,0 +1,20 @@
+{
+  "qa_sampled_count": 200,
+  "seed": 42,
+  "strategy": "structural",
+  "pdf_count": 3,
+  "html_count": 1,
+  "markdown_count": 1,
+  "ignored_unsupported_file_count": 2,
+  "parse_failure_count": 0,
+  "parse_failures": [],
+  "parsed_document_count": 5,
+  "literature_chunk_count": 152,
+  "total_unit_count": 352,
+  "mean_chunk_chars": 521.68,
+  "p50_chunk_chars": 558.5,
+  "p95_chunk_chars": 599,
+  "table_chunk_count": 16,
+  "warnings": {},
+  "elapsed_seconds": 2.628
+}

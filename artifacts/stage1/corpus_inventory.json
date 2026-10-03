@@ -1,0 +1,50 @@
+[
+  {
+    "path": "README.md",
+    "kind": "markdown",
+    "status": "supported",
+    "bytes": 755
+  },
+  {
+    "path": "eval/change_data.py",
+    "kind": "unsupported",
+    "status": "ignored_unsupported",
+    "bytes": 5141
+  },
+  {
+    "path": "eval/new_qa_200.jsonl",
+    "kind": "unsupported",
+    "status": "ignored_unsupported",
+    "bytes": 476346
+  },
+  {
+    "path": "qa_50000.jsonl",
+    "kind": "qa",
+    "status": "supported",
+    "bytes": 166726418
+  },
+  {
+    "path": "中国幽门螺杆菌感染治疗指南.pdf",
+    "kind": "pdf",
+    "status": "supported",
+    "bytes": 2098275
+  },
+  {
+    "path": "中国心力衰竭诊断和治疗指南2024.pdf",
+    "kind": "pdf",
+    "status": "supported",
+    "bytes": 340482
+  },
+  {
+    "path": "中国急性缺血性脑卒中诊断指南.pdf",
+    "kind": "pdf",
+    "status": "supported",
+    "bytes": 1731376
+  },
+  {
+    "path": "卫健委2025年权威发布：高血压全维度防治指南（用药+饮食+运动） - 今日头条.html",
+    "kind": "html",
+    "status": "supported",
+    "bytes": 146587
+  }
+]
