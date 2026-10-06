@@ -1,0 +1,199 @@
+{
+  "baseline_artifact": "artifacts/stage4_diagnosis",
+  "regression_artifact": "artifacts/stage4_holdout_v2",
+  "before": {
+    "case_count": 30,
+    "task_success_rate": 0.5333333333333333,
+    "planning_quality": {
+      "applicable_count": 26,
+      "mean": 1,
+      "good_ratio": 0.46153846153846156
+    },
+    "trajectory_correct_rate": 0.4666666666666667,
+    "avg_subqueries": 0.5666666666666667,
+    "avg_db_searches": 0.5666666666666667,
+    "avg_web_searches": 0.23333333333333334,
+    "avg_retries": 0.06666666666666667,
+    "latency": {
+      "p50_ms": 10589.038363003056,
+      "p95_ms": 83036.51136200642
+    },
+    "token_usage": {
+      "available_count": 0,
+      "mean": null
+    },
+    "by_primary_category": {
+      "simple_single_hop": {
+        "case_count": 5,
+        "task_success_rate": 1,
+        "planning_quality": {
+          "applicable_count": 5,
+          "mean": 2,
+          "good_ratio": 1.0
+        },
+        "trajectory_correct_rate": 0.8
+      },
+      "rewrite_needed": {
+        "case_count": 5,
+        "task_success_rate": 0,
+        "planning_quality": {
+          "applicable_count": 5,
+          "mean": 0,
+          "good_ratio": 0.0
+        },
+        "trajectory_correct_rate": 0
+      },
+      "decompose_multi_intent": {
+        "case_count": 5,
+        "task_success_rate": 0.6,
+        "planning_quality": {
+          "applicable_count": 5,
+          "mean": 0.8,
+          "good_ratio": 0.2
+        },
+        "trajectory_correct_rate": 0.4
+      },
+      "clarification_needed": {
+        "case_count": 4,
+        "task_success_rate": 1,
+        "planning_quality": {
+          "applicable_count": 0,
+          "mean": null,
+          "good_ratio": null
+        },
+        "trajectory_correct_rate": 1
+      },
+      "kb_sufficient_no_web": {
+        "case_count": 4,
+        "task_success_rate": 1,
+        "planning_quality": {
+          "applicable_count": 4,
+          "mean": 2,
+          "good_ratio": 1.0
+        },
+        "trajectory_correct_rate": 0.5
+      },
+      "kb_insufficient_web": {
+        "case_count": 3,
+        "task_success_rate": 0,
+        "planning_quality": {
+          "applicable_count": 3,
+          "mean": 1.3333333333333333,
+          "good_ratio": 0.6666666666666666
+        },
+        "trajectory_correct_rate": 0.6666666666666666
+      },
+      "multi_turn_context": {
+        "case_count": 4,
+        "task_success_rate": 0,
+        "planning_quality": {
+          "applicable_count": 4,
+          "mean": 0,
+          "good_ratio": 0.0
+        },
+        "trajectory_correct_rate": 0
+      }
+    }
+  },
+  "after": {
+    "case_count": 30,
+    "task_success_rate": 0.5333333333333333,
+    "planning_quality": {
+      "applicable_count": 28,
+      "mean": 1.3928571428571428,
+      "good_ratio": 0.6428571428571429
+    },
+    "trajectory_correct_rate": 0.6,
+    "avg_subqueries": 0.9666666666666667,
+    "avg_db_searches": 0.9666666666666667,
+    "avg_web_searches": 0.3,
+    "avg_retries": 0.1,
+    "latency": {
+      "p50_ms": 37559.677124998416,
+      "p95_ms": 100899.95664000162
+    },
+    "token_usage": {
+      "available_count": 0,
+      "mean": null
+    },
+    "by_primary_category": {
+      "simple_single_hop": {
+        "case_count": 5,
+        "task_success_rate": 0.8,
+        "planning_quality": {
+          "applicable_count": 5,
+          "mean": 2,
+          "good_ratio": 1.0
+        },
+        "trajectory_correct_rate": 1
+      },
+      "rewrite_needed": {
+        "case_count": 5,
+        "task_success_rate": 0.2,
+        "planning_quality": {
+          "applicable_count": 5,
+          "mean": 0.4,
+          "good_ratio": 0.2
+        },
+        "trajectory_correct_rate": 0.2
+      },
+      "decompose_multi_intent": {
+        "case_count": 5,
+        "task_success_rate": 1,
+        "planning_quality": {
+          "applicable_count": 5,
+          "mean": 1.6,
+          "good_ratio": 0.6
+        },
+        "trajectory_correct_rate": 0.4
+      },
+      "clarification_needed": {
+        "case_count": 4,
+        "task_success_rate": 0,
+        "planning_quality": {
+          "applicable_count": 2,
+          "mean": 2,
+          "good_ratio": 1.0
+        },
+        "trajectory_correct_rate": 0.5
+      },
+      "kb_sufficient_no_web": {
+        "case_count": 4,
+        "task_success_rate": 1,
+        "planning_quality": {
+          "applicable_count": 4,
+          "mean": 2,
+          "good_ratio": 1.0
+        },
+        "trajectory_correct_rate": 1
+      },
+      "kb_insufficient_web": {
+        "case_count": 3,
+        "task_success_rate": 0,
+        "planning_quality": {
+          "applicable_count": 3,
+          "mean": 1.3333333333333333,
+          "good_ratio": 0.6666666666666666
+        },
+        "trajectory_correct_rate": 1
+      },
+      "multi_turn_context": {
+        "case_count": 4,
+        "task_success_rate": 0.5,
+        "planning_quality": {
+          "applicable_count": 4,
+          "mean": 0.75,
+          "good_ratio": 0.25
+        },
+        "trajectory_correct_rate": 0.25
+      }
+    }
+  },
+  "delta": {
+    "task_success_rate": 0.0,
+    "trajectory_correct_rate": 0.1333333333333333,
+    "planning_quality_mean": 0.3928571428571428,
+    "p50_latency_ms": 26970.63876199536,
+    "p95_latency_ms": 17863.445277995197
+  }
+}

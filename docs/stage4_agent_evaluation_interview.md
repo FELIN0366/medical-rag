@@ -62,7 +62,7 @@
 
 ## 16. required / forbidden tool 怎么评？
 
-标准回答：由数据库检索与 Web 实际调用计数导出工具集合，再做集合约束。继续追问：Planner Tool Schema 是否等于执行？代码位置：`agent_evaluation/evaluators.py`。
+标准回答：由本地 Retrieval Pipeline 与 Web 实际调用计数导出行为集合，再做集合约束。`database_search` 仅是“发生本地 Retrieval Pipeline”的评测标签；Planner 的 `RetrievalPlannerDecision` 是纯通道选择 Schema，不是执行 Tool。继续追问：代码位置：`retrieval/policy.py`、`agent_evaluation/evaluators.py`。
 
 ## 17. unnecessary Web 如何识别？
 
@@ -94,4 +94,4 @@
 
 ## 24. 当前局限是什么？
 
-标准回答：30 条不是医疗临床正确性基准，Judge 有模型偏差，token usage 可能不可用，实时 Web 依赖既有服务。继续追问：哪些没有实现？代码位置：`docs/stage4_agent_evaluation_implementation.md`。
+标准回答：30 条不是医疗临床正确性基准，Judge 有模型偏差，token usage 可能不可用，实时 Web 依赖既有服务。独立 holdout 的 Task Success 仍为 53.33%，不能把诊断集上的局部改善宣传为泛化提升。继续追问：哪些没有实现？代码位置：`docs/stage4_agent_evaluation_implementation.md`。

@@ -1,0 +1,100 @@
+{
+  "agent_initialization": {
+    "count": 30,
+    "mean_ms": 9.592,
+    "p50_ms": 8.425,
+    "p95_ms": 13.447,
+    "max_ms": 33.818
+  },
+  "background_update": {
+    "count": 22,
+    "mean_ms": 3720.66,
+    "p50_ms": 3541.7,
+    "p95_ms": 5667.761,
+    "max_ms": 6201.986
+  },
+  "clarification": {
+    "count": 38,
+    "mean_ms": 5653.537,
+    "p50_ms": 4339.222,
+    "p95_ms": 12978.39,
+    "max_ms": 22937.921
+  },
+  "gather_answer": {
+    "count": 22,
+    "mean_ms": 2195.313,
+    "p50_ms": 0.121,
+    "p95_ms": 7508.647,
+    "max_ms": 8344.518
+  },
+  "judge": {
+    "count": 32,
+    "mean_ms": 7398.529,
+    "p50_ms": 5142.579,
+    "p95_ms": 17391.752,
+    "max_ms": 21704.395
+  },
+  "output_parse_or_fix": {
+    "count": 29,
+    "mean_ms": 63.014,
+    "p50_ms": 0.119,
+    "p95_ms": 0.243,
+    "max_ms": 1823.68
+  },
+  "rag_generate": {
+    "count": 32,
+    "mean_ms": 10679.292,
+    "p50_ms": 10281.402,
+    "p95_ms": 22107.478,
+    "max_ms": 27679.615
+  },
+  "reranker": {
+    "count": 29,
+    "mean_ms": 4580.032,
+    "p50_ms": 4573.596,
+    "p95_ms": 6057.254,
+    "max_ms": 6679.484
+  },
+  "retrieval_executor": {
+    "count": 29,
+    "mean_ms": 3917.604,
+    "p50_ms": 3690.601,
+    "p95_ms": 5212.949,
+    "max_ms": 5487.701
+  },
+  "retrieval_planner": {
+    "count": 29,
+    "mean_ms": 2799.691,
+    "p50_ms": 2315.485,
+    "p95_ms": 4996.155,
+    "max_ms": 5569.306
+  },
+  "split_query": {
+    "count": 22,
+    "mean_ms": 2068.185,
+    "p50_ms": 1942.871,
+    "p95_ms": 2964.737,
+    "max_ms": 4432.957
+  },
+  "tavily_search": {
+    "count": 9,
+    "mean_ms": 15159.323,
+    "p50_ms": 10430.373,
+    "p95_ms": 34151.029,
+    "max_ms": 34151.029
+  },
+  "web_judge": {
+    "count": 29,
+    "mean_ms": 7486.083,
+    "p50_ms": 7766.208,
+    "p95_ms": 11234.486,
+    "max_ms": 12250.498
+  },
+  "web_tool_planner": {
+    "count": 9,
+    "mean_ms": 1363.122,
+    "p50_ms": 1309.369,
+    "p95_ms": 1561.693,
+    "max_ms": 1561.693
+  }
+}
