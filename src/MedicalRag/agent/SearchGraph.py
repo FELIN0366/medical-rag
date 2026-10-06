@@ -186,8 +186,10 @@ def retrieve(
     _emit_local_trace(state, "retrieval_planner", selected_channels=list(result.selected_channels),
                       planner_error=result.planner_error, latency_ms=result.planner_latency_ms)
     _emit_local_trace(state, "retrieval_executor", candidate_count=result.candidate_count,
+                      candidate_pks=list(getattr(result, "candidate_pks", ())),
                       latency_ms=result.retrieval_latency_ms)
-    _emit_local_trace(state, "reranker", final_count=len(result.documents), latency_ms=result.reranker_latency_ms)
+    _emit_local_trace(state, "reranker", final_count=len(result.documents),
+                      final_pks=list(getattr(result, "final_pks", ())), latency_ms=result.reranker_latency_ms)
     if show_debug:
         logger.info("Stage 2 检索完成：通道=%s，候选=%s，最终=%s", result.selected_channels,
                     result.candidate_count, len(result.documents))

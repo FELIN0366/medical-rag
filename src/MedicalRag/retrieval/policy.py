@@ -1,18 +1,27 @@
-"""Stage 2 的固定策略与复用既有 Tool Schema 的 Agent 选路策略。"""
+"""Stage 2 的固定策略与纯检索决策 Schema 的 Agent 选路策略。"""
 from __future__ import annotations
 
 import time
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
-from ..agent.tools.AgentTools import AgentTools
 from ..config.models import AppConfig, FusionSpec, SearchRequest, SingleSearchRequest
 from ..prompts.templates import get_prompt_template
 from .models import RetrievalPlan
 
 CHANNELS = ("summary_dense", "text_dense", "text_sparse")
+
+
+class RetrievalPlannerDecision(BaseModel):
+    """Planner 的纯决策输出；不携带、也不执行任何数据库检索参数。"""
+
+    selected_channels: list[Literal["summary_dense", "text_dense", "text_sparse"]] = Field(
+        min_length=1,
+        description="本次检索应使用的一条或多条通道。",
+    )
 
 
 def normalize_plan(query: str, selected_channels: Iterable[str], config: AppConfig,
@@ -56,32 +65,29 @@ class FixedHybridPolicy:
 
 
 class AgentPlannerPolicy:
-    """基于既有 database_search Tool Schema 的 Stage 2 选路策略。"""
+    """以 Schema-only Tool Call 产生通道决策；Milvus 仅由 Executor 访问。"""
     def __init__(self, config: AppConfig, planner_llm: BaseChatModel,
                  proposal_override: Callable[[str], Iterable[str]] | None = None) -> None:
         self.config = config
         self.planner_llm = planner_llm
         self.proposal_override = proposal_override
-        # 与现有 SearchGraph 使用相同的结构化检索工具 Schema；这里仅解析计划，不执行 ToolNode。
-        self.database_search_tool = AgentTools(config).make_database_search_tool()
-        self.bound_llm = planner_llm.bind_tools([self.database_search_tool])
+        # 此处绑定的是 Pydantic Schema，而非可执行 Tool；不会创建 ToolNode 或访问 Milvus。
+        self.bound_llm = planner_llm.bind_tools([RetrievalPlannerDecision])
         self.last_planner_latency_ms = 0.0
 
-    def _tool_selected_channels(self, query: str) -> tuple[tuple[str, ...], str | None]:
+    def _decision_selected_channels(self, query: str) -> tuple[tuple[str, ...], str | None]:
         started = time.perf_counter()
         try:
-            template = get_prompt_template("call_db")
+            template = get_prompt_template("retrieval_planner")
             response = self.bound_llm.invoke([
                 SystemMessage(content=template["system"]),
                 HumanMessage(content=template["user"].format(query=query)),
             ])
             calls = getattr(response, "tool_calls", None) or []
             if not calls:
-                return (), "Planner 未返回 database_search Tool Call"
-            arguments = calls[0].get("args", {})
-            payload = arguments.get("search_config", arguments)
-            proposal = SearchRequest.model_validate(payload)
-            return tuple(item.anns_field for item in proposal.requests), None
+                return (), "Planner 未返回 RetrievalPlannerDecision"
+            decision = RetrievalPlannerDecision.model_validate(calls[0].get("args", {}))
+            return tuple(decision.selected_channels), None
         except Exception as exc:
             return (), f"Planner 计划解析失败：{type(exc).__name__}: {exc}"
         finally:
@@ -91,7 +97,7 @@ class AgentPlannerPolicy:
         if self.proposal_override is not None:
             selected = tuple(self.proposal_override(query))
             return normalize_plan(query, selected, self.config, policy_name="agent_planner")
-        selected, error = self._tool_selected_channels(query)
+        selected, error = self._decision_selected_channels(query)
         # Planner 服务异常时退回固定三路，并显式记录，避免把失败伪装成动态选路。
         if not selected:
             return normalize_plan(query, CHANNELS, self.config, policy_name="agent_planner", planner_error=error)

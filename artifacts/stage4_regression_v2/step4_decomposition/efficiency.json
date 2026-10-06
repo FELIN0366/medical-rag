@@ -1,0 +1,15 @@
+{
+  "case_count": 5,
+  "avg_subqueries": 2.0,
+  "avg_db_searches": 2.0,
+  "avg_web_searches": 0.0,
+  "avg_retries": 0.6,
+  "latency": {
+    "p50_ms": 55310.61936599144,
+    "p95_ms": 90398.13663100358
+  },
+  "token_usage": {
+    "available_count": 0,
+    "mean": null
+  }
+}

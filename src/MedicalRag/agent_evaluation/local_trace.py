@@ -9,16 +9,20 @@ from pathlib import Path
 from typing import Any
 
 
-def _safe_value(value: Any) -> Any:
+def _safe_value(value: Any, *, list_limit: int = 20) -> Any:
     """轨迹只保留行为元数据，避免写入检索 chunk 或完整模型上下文。"""
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
         return value[:500]
     if isinstance(value, (list, tuple)):
-        return [_safe_value(item) for item in value[:20]]
+        return [_safe_value(item) for item in value[:list_limit]]
     if isinstance(value, dict):
-        return {str(key): _safe_value(item) for key, item in value.items() if key != "documents"}
+        return {
+            str(key): _safe_value(item, list_limit=50 if key in {"candidate_pks", "final_pks"} else 20)
+            for key, item in value.items()
+            if key != "documents"
+        }
     return str(value)[:500]
 
 
@@ -42,6 +46,7 @@ class LocalTraceCollector:
             "primary_category": context.get("primary_category", ""),
             "session_id": context.get("session_id", ""),
             "turn_index": context.get("turn_index", 0),
+            "subquery_id": context.get("subquery_id"),
             "event": event,
             "data": _safe_value(data),
         }

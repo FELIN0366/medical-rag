@@ -69,7 +69,14 @@ class AgentEvaluationRunner:
             web_search_count += sum(int(result.get("web_search_count", 0)) for result in sub_results)
             retry_count += sum(int(result.get("judge_retry_count", 0)) for result in sub_results)
             ask_obj = state.get("ask_obj")
-            if ask_obj and ask_obj.need_ask:
+            # 原始 MedicalAgent 的追问只结束当前 invocation；多轮 Eval 必须把后续
+            # 冻结用户输入继续送入同一个 Agent 实例，保留其会话状态。
+            if (
+                case.primary_category == "clarification_needed"
+                and case.expectation.terminal_behavior == "clarification"
+                and ask_obj
+                and ask_obj.need_ask
+            ):
                 break
         ask_obj = final_state.get("ask_obj")
         sub_results = final_state.get("sub_query_results", [])

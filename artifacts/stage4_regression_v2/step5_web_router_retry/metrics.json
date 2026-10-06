@@ -1,0 +1,34 @@
+{
+  "case_count": 2,
+  "task_success_rate": 0,
+  "planning_quality": {
+    "applicable_count": 1,
+    "mean": 2,
+    "good_ratio": 1.0
+  },
+  "trajectory_correct_rate": 0.5,
+  "avg_subqueries": 0.5,
+  "avg_db_searches": 0.5,
+  "avg_web_searches": 0.5,
+  "avg_retries": 0.0,
+  "latency": {
+    "p50_ms": 49919.925367998076,
+    "p95_ms": 91823.45797099697
+  },
+  "token_usage": {
+    "available_count": 0,
+    "mean": null
+  },
+  "by_primary_category": {
+    "kb_insufficient_web": {
+      "case_count": 2,
+      "task_success_rate": 0,
+      "planning_quality": {
+        "applicable_count": 1,
+        "mean": 2,
+        "good_ratio": 1.0
+      },
+      "trajectory_correct_rate": 0.5
+    }
+  }
+}

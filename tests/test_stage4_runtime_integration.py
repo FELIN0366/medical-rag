@@ -11,10 +11,12 @@ from langchain_core.messages import AIMessage, ToolMessage
 from MedicalRag.agent.SearchGraph import (
     SearchGraph, invoke_with_timeout, merge_web_tool_responses, parse_web_search_response, retrieve,
 )
+from MedicalRag.agent.MedicalAgent import is_general_knowledge_request, search_one
 from MedicalRag.agent.tools import AgentTools
 from MedicalRag.config.loader import ConfigLoader
 from MedicalRag.retrieval.service import OnlineRetrievalResult
 from MedicalRag.retrieval.models import RetrievalPlan, RetrievalTrace
+from MedicalRag.retrieval.policy import AgentPlannerPolicy, RetrievalPlannerDecision
 from MedicalRag.retrieval.reranker import RerankResult
 from MedicalRag.config.models import SearchRequest
 
@@ -75,6 +77,106 @@ def test_search_graph_has_no_direct_database_toolnode(monkeypatch):
     assert not hasattr(graph, "db_tool_node")
     assert not hasattr(graph, "db_search_tool")
     assert graph.retrieval_service is service
+
+
+def test_general_knowledge_boundary_does_not_require_clarification():
+    assert is_general_knowledge_request("血压老是高高的，平时吃东西该咋管？")
+    assert is_general_knowledge_request("165/105这档算严重不？")
+    assert is_general_knowledge_request("今天广州的空气质量是否适合户外运动？")
+    assert not is_general_knowledge_request("我这两天头晕，是不是血压有问题？")
+    assert not is_general_knowledge_request("老人突然血压不稳应该怎么处理？")
+
+
+def test_failed_parallel_subquery_isolated_from_other_send_branches():
+    class FailingGraph:
+        class Config:
+            class Agent:
+                max_attempts = 1
+            agent = Agent()
+        config = Config()
+
+        def run(self, _state):
+            raise TimeoutError("远端超时")
+
+    output = search_one({"query": "子查询", "subquery_id": 2}, FailingGraph())
+    result = output["sub_query_results"][0]
+    assert result["query"] == "子查询"
+    assert result["subquery_error"] == "TimeoutError"
+    assert result["final"] == ""
+
+
+def test_agent_planner_uses_schema_only_decision_without_database_tool():
+    captured = {}
+
+    class PlannerModel:
+        def bind_tools(self, tools):
+            captured["tools"] = tools
+            return self
+
+        def invoke(self, _messages):
+            return AIMessage(content="", tool_calls=[{
+                "name": "RetrievalPlannerDecision",
+                "args": {"selected_channels": ["summary_dense", "text_sparse"]},
+                "id": "plan-1",
+            }])
+
+    config = ConfigLoader().config
+    policy = AgentPlannerPolicy(config, PlannerModel())
+    plan = policy.plan("高血压症状")
+    assert captured["tools"] == [RetrievalPlannerDecision]
+    assert plan.selected_channels == ("summary_dense", "text_sparse")
+    assert not hasattr(policy, "database_search_tool")
+
+
+def test_medical_agent_graph_preserves_semantic_topology(monkeypatch):
+    agent_module = importlib.import_module("MedicalRag.agent.MedicalAgent")
+
+    class FakeNormalModel:
+        def invoke(self, _messages):
+            return AIMessage(content="测试")
+
+    class FakeSearchGraph:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(agent_module, "create_llm_client", lambda _config: FakeNormalModel())
+    monkeypatch.setattr(agent_module, "SearchGraph", FakeSearchGraph)
+    agent = agent_module.MedicalAgent(ConfigLoader().config, FakeNormalModel())
+    edges = {
+        (edge.source, edge.target, edge.data, edge.conditional)
+        for edge in agent.app.get_graph().edges
+    }
+    assert ("__start__", "clarification", "ask", True) in edges
+    assert ("__start__", "check_update_background", None, True) in edges
+    assert ("clarification", "__end__", "ask", True) in edges
+    assert ("clarification", "background_update", "pass", True) in edges
+    assert ("background_update", "split_query", None, False) in edges
+    assert ("check_update_background", "split_query", None, False) in edges
+    assert ("split_query", "search_one", None, True) in edges
+    assert ("search_one", "gather_answer", None, False) in edges
+    assert ("gather_answer", "__end__", None, False) in edges
+
+
+def test_search_graph_preserves_semantic_topology(monkeypatch):
+    import MedicalRag.agent.SearchGraph as graph_module
+
+    config = ConfigLoader().config.model_copy(deep=True)
+    config.agent.network_search_enabled = True
+    config.agent.mode = "analysis"
+    monkeypatch.setattr(graph_module, "create_llm_client", lambda _config: FakePowerModel())
+    graph = SearchGraph(config, FakePowerModel(), retrieval_service=FakeRetrievalService())
+    graph.build_search_graph()
+    edges = {
+        (edge.source, edge.target, edge.data, edge.conditional)
+        for edge in graph.search_graph.get_graph().edges
+    }
+    assert ("__start__", "retrieve", None, False) in edges
+    assert ("retrieve", "web_search", None, False) in edges
+    assert ("web_search", "rag", None, False) in edges
+    assert ("rag", "judge", None, False) in edges
+    assert ("judge", "finish_success", "pass", True) in edges
+    assert ("judge", "rag", "retry", True) in edges
+    assert ("judge", "finish_fail", "fail", True) in edges
 
 
 def test_online_service_composes_planner_executor_and_reranker():

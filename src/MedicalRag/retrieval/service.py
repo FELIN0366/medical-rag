@@ -27,6 +27,8 @@ class OnlineRetrievalResult:
     planner_latency_ms: float
     retrieval_latency_ms: float
     reranker_latency_ms: float
+    candidate_pks: tuple[str, ...] = ()
+    final_pks: tuple[str, ...] = ()
 
 
 class OnlineRetrievalService:
@@ -66,6 +68,8 @@ class OnlineRetrievalService:
         by_index = {item.index: item.score for item in ranked}
         ordered_indices = sorted(by_index, key=lambda index: (-by_index[index], index))
         documents = [candidates[index] for index in ordered_indices[: self.config.retrieval_stage2.final_k]]
+        candidate_pks = tuple(str(document.metadata.get("pk", "")) for document in candidates)
+        final_pks = tuple(str(document.metadata.get("pk", "")) for document in documents)
         return OnlineRetrievalResult(
             documents=documents,
             selected_channels=plan.selected_channels,
@@ -74,6 +78,8 @@ class OnlineRetrievalService:
             planner_latency_ms=float(getattr(self.planner, "last_planner_latency_ms", 0.0)),
             retrieval_latency_ms=trace.retrieval_latency_ms,
             reranker_latency_ms=reranker_latency_ms,
+            candidate_pks=candidate_pks,
+            final_pks=final_pks,
         )
 
     def retrieve(self, query: str, *, trace_collector: Any = None,

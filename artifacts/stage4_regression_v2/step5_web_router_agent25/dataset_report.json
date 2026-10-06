@@ -1,0 +1,15 @@
+{
+  "case_count": 30,
+  "category_counts": {
+    "simple_single_hop": 5,
+    "rewrite_needed": 5,
+    "decompose_multi_intent": 5,
+    "clarification_needed": 4,
+    "kb_sufficient_no_web": 4,
+    "kb_insufficient_web": 3,
+    "multi_turn_context": 4
+  },
+  "source": "data/eval/agent_behavior_cases.jsonl",
+  "frozen_copy": "artifacts/stage4_regression_v2/step5_web_router_agent25/agent_eval_dataset.jsonl",
+  "sha256": "4ef8ad30f1707214fabd8d247ab9370866e05c79be6c8efd10bb20548190d34d"
+}

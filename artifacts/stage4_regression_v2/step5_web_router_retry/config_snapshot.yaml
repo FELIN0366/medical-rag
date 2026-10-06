@@ -1,0 +1,66 @@
+milvus:
+  uri: http://localhost:19530
+  token: null
+  collection_name: medical_knowledge
+  drop_old: false
+embedding:
+  summary_dense:
+    provider: openai
+    model: qwen3.7-text-embedding-flash
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    env_key_name: ${DASHSCOPE_API_KEY}
+    proxy: null
+    dimension: 1024
+  text_dense:
+    provider: openai
+    model: qwen3.7-text-embedding-flash
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    env_key_name: ${DASHSCOPE_API_KEY}
+    proxy: null
+    dimension: 1024
+  text_sparse:
+    provider: Milvus
+reranker:
+  provider: dashscope
+  model: qwen3.7-text-rerank
+  api_key_env: ${DASHSCOPE_API_KEY}
+  workspace_id_env: DASHSCOPE_WORKSPACE_ID
+  region: cn-beijing
+  top_n: 30
+  timeout: 30.0
+  max_retries: 3
+  instruct: Given a medical question, rank passages by whether they contain evidence
+    that directly answers the question. Prefer directly supporting passages over passages
+    that are only topically related.
+retrieval_stage2:
+  per_route_k: 50
+  rrf_k: 60
+  candidate_k: 30
+  final_k: 5
+llm:
+  provider: openai
+  model: deepseek-flash
+  base_url: https://api.deepseek.com
+  env_key_name: ${DEEPSEEK_API_KEY}
+  proxy: null
+  temperature: 0.1
+  max_tokens: null
+  timeout: 30.0
+  max_retries: 0
+data:
+  default_source: qa
+  default_source_name: huatuo_qa
+multi_dialogue_rag:
+  estimate_token_fun: ${tiktoken}
+  llm_max_token: ${102400}
+  max_token_threshold: ${1.01}
+  cut_dialogue_scale: 2
+  smith_debug: false
+  console_debug: true
+  thinking_in_context: false
+agent:
+  mode: analysis
+  max_attempts: 2
+  network_search_enabled: true
+  network_search_cnt: 10
+  auto_search_param: true

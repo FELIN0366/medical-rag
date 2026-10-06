@@ -40,6 +40,29 @@ class SplitQuery(BaseModel):
     rewrite_query: str = Field(default="", description="如果不需要拆分，改写查询为便于检索的句子")
 
 
+def is_general_knowledge_request(query: str) -> bool:
+    """识别可先给通用循证信息、无需个体化追问的检索请求。
+
+    该边界只区分“通用知识检索”和“可能需要即时个体化处置”的语义，
+    不依赖任何冻结评测问题或疾病专名。具体措辞仍由后续 rewrite/split 节点处理。
+    """
+    normalized = re.sub(r"\s+", "", query)
+    safety_markers = (
+        "突然", "怎么办", "要不要换", "头晕", "胸痛", "气短", "呼吸困难",
+        "昏", "晕厥", "急诊", "不舒服", "这两天", "老人",
+    )
+    knowledge_markers = (
+        "症状", "感觉", "饮食", "吃", "食盐", "盐", "几级", "分级",
+        "严重", "风险因素", "生活方式", "日常", "注意什么", "怎么调整",
+    )
+    time_sensitive_retrieval_markers = (
+        "今天", "本周", "最新", "日期", "公告", "空气质量", "天气", "实时",
+    )
+    return not any(marker in normalized for marker in safety_markers) and any(
+        marker in normalized for marker in knowledge_markers + time_sensitive_retrieval_markers
+    )
+
+
 # ===================== 顶层图状态 =====================
 
 class MedicalAgentState(TypedDict, total=False):
@@ -97,6 +120,9 @@ def ask_judge(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentState
         state["asking_messages"][-1].append(HumanMessage(content=state["curr_input"]))
 
     patch: AskMess = fixing.parse(ai["msg"])
+    # 通用医学知识请求可直接进入改写/检索；不因口语化而截断检索链。
+    if patch.need_ask and is_general_knowledge_request(state["curr_input"]):
+        patch = AskMess(need_ask=False, questions=[])
     state["ask_obj"] = patch
 
     if patch.need_ask:
@@ -215,7 +241,7 @@ def route_to_subgraphs(state: MedicalAgentState) -> List[Send]:
         queries = [base_q or state["curr_input"]]
 
     logger.info(f"[route] 拆分为 {len(queries)} 个子查询: {queries}")
-    return [Send("search_one", {"query": q}) for q in queries]
+    return [Send("search_one", {"query": q, "subquery_id": index}) for index, q in enumerate(queries, start=1)]
 
 
 def search_one(task_input: dict, search_graph: SearchGraph, local_trace_collector=None,
@@ -225,6 +251,9 @@ def search_one(task_input: dict, search_graph: SearchGraph, local_trace_collecto
     返回值通过 sub_query_results 的 add reducer 自动合并到主状态。
     """
     query = task_input["query"]
+    subquery_id = int(task_input.get("subquery_id", 1))
+    trace_context = dict(local_trace_context or {})
+    trace_context["subquery_id"] = subquery_id
     init_state: SearchMessagesState = {
         "query": query,
         "main_messages": [HumanMessage(content=query)],
@@ -239,9 +268,23 @@ def search_one(task_input: dict, search_graph: SearchGraph, local_trace_collecto
         "judge_retry_count": 0,
         "node_events": [],
         "local_trace_collector": local_trace_collector,
-        "local_trace_context": dict(local_trace_context or {}),
+        "local_trace_context": trace_context,
     }
-    result = search_graph.run(init_state)
+    try:
+        result = search_graph.run(init_state)
+    except Exception as error:
+        # Send 并行分支中的单个远端调用失败不能撤销其他已完成子查询；
+        # 汇总节点会仅使用成功分支的证据，并保留此失败的可审计元数据。
+        logger.warning("子查询执行失败，跳过该分支：%s", type(error).__name__)
+        if local_trace_collector is not None:
+            local_trace_collector.emit(trace_context, "search_one_error",
+                                       error_type=type(error).__name__)
+        result = {
+            **init_state,
+            "summary": "",
+            "final": "",
+            "subquery_error": type(error).__name__,
+        }
     return {"sub_query_results": [result]}
 
 
@@ -403,7 +446,11 @@ class MedicalAgent:
 
     def _wrap_node(self, event: str, func):
         def wrapped(state):
-            result = func(state)
+            if self.local_trace_collector is None:
+                result = func(state)
+            else:
+                with self.local_trace_collector.span(self.local_trace_context, event):
+                    result = func(state)
             if event == "clarification":
                 ask_obj = result.get("ask_obj")
                 self._emit_local_trace(event, need_ask=bool(ask_obj and ask_obj.need_ask),
@@ -421,7 +468,8 @@ class MedicalAgent:
         return wrapped
 
     def _search_one_node(self, task_input: dict) -> dict:
-        self._emit_local_trace("search_one", query=task_input.get("query", ""))
+        self._emit_local_trace("search_one", query=task_input.get("query", ""),
+                               subquery_id=task_input.get("subquery_id", 1))
         return search_one(task_input, self.search_graph, self.local_trace_collector, self.local_trace_context)
 
     def _reset_state(self):

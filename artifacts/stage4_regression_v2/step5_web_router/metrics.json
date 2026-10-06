@@ -1,0 +1,44 @@
+{
+  "case_count": 7,
+  "task_success_rate": 0.5714285714285714,
+  "planning_quality": {
+    "applicable_count": 7,
+    "mean": 1.7142857142857142,
+    "good_ratio": 0.8571428571428571
+  },
+  "trajectory_correct_rate": 0.8571428571428571,
+  "avg_subqueries": 0.8571428571428571,
+  "avg_db_searches": 0.8571428571428571,
+  "avg_web_searches": 0.2857142857142857,
+  "avg_retries": 0.0,
+  "latency": {
+    "p50_ms": 34184.67110500205,
+    "p95_ms": 69628.47358500585
+  },
+  "token_usage": {
+    "available_count": 0,
+    "mean": null
+  },
+  "by_primary_category": {
+    "kb_sufficient_no_web": {
+      "case_count": 4,
+      "task_success_rate": 1,
+      "planning_quality": {
+        "applicable_count": 4,
+        "mean": 2,
+        "good_ratio": 1.0
+      },
+      "trajectory_correct_rate": 1
+    },
+    "kb_insufficient_web": {
+      "case_count": 3,
+      "task_success_rate": 0,
+      "planning_quality": {
+        "applicable_count": 3,
+        "mean": 1.3333333333333333,
+        "good_ratio": 0.6666666666666666
+      },
+      "trajectory_correct_rate": 0.6666666666666666
+    }
+  }
+}

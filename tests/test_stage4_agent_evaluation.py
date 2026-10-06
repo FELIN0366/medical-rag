@@ -85,6 +85,29 @@ def test_runner_reuses_a_session_for_multi_turn_case():
     assert len({session for session, _ in calls}) == 1
 
 
+def test_runner_continues_multi_turn_case_after_clarification():
+    case = next(item for item in _cases() if item.primary_category == "multi_turn_context")
+    calls = []
+
+    class FakeAgent:
+        def set_local_trace_collector(self, _collector, **_kwargs):
+            pass
+
+        def answer(self, turn):
+            calls.append(turn)
+            return {
+                "ask_obj": type("Ask", (), {"need_ask": True, "questions": ["请补充信息"]})(),
+                "final_answer": "",
+                "rewritten_query": "",
+                "sub_query": None,
+                "sub_query_results": [],
+            }
+
+    runner = AgentEvaluationRunner(ConfigLoader().config, FakeAgent, FakeJudgeModel())
+    runner.run_case(case, LocalTraceCollector())
+    assert calls == case.turns
+
+
 def test_local_trace_does_not_persist_retrieved_documents(tmp_path):
     collector = LocalTraceCollector()
     collector.emit({"case_id": "case", "session_id": "session", "turn_index": 1}, "retrieval_executor",
