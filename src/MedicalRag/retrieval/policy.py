@@ -30,9 +30,18 @@ def normalize_plan(query: str, selected_channels: Iterable[str], config: AppConf
         else:
             requests.append(SingleSearchRequest(anns_field=field, metric_type="COSINE",
                                                 search_params={"ef": 64}, limit=frozen.per_route_k))
-    request = SearchRequest(query=query, collection_name=config.milvus.collection_name, requests=requests,
-                            fuse=FusionSpec(method="rrf", k=frozen.rrf_k) if len(requests) > 1 else None,
-                            limit=frozen.candidate_k)
+    # 在线运行时与评测使用同一冻结检索参数；此处只补齐下游生成和追踪所需的证据定位字段。
+    request = SearchRequest(
+        query=query,
+        collection_name=config.milvus.collection_name,
+        requests=requests,
+        output_fields=[
+            "pk", "text", "summary", "document", "source", "source_name", "doc_id", "chunk_id",
+            "department", "title", "section_path", "page",
+        ],
+        fuse=FusionSpec(method="rrf", k=frozen.rrf_k) if len(requests) > 1 else None,
+        limit=frozen.candidate_k,
+    )
     return RetrievalPlan(policy_name=policy_name, selected_channels=chosen, search_request=request,
                          planner_error=planner_error)
 

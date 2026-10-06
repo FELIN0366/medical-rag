@@ -57,6 +57,9 @@ class LLMConfig(BaseModel):
     proxy: Optional[str] = None
     temperature: float = 0.1
     max_tokens: Optional[int] = None
+    timeout: float = Field(default=30.0, gt=0)
+    # 远程 Agent 节点发生超时后由图状态降级，不在 SDK 内部重复阻塞同一请求。
+    max_retries: int = Field(default=0, ge=0, le=5)
 
 class DataConfig(BaseModel):
     default_source: str = "qa"

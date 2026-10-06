@@ -1,0 +1,94 @@
+{
+  "case_count": 30,
+  "task_success_rate": 0.36666666666666664,
+  "planning_quality": {
+    "applicable_count": 26,
+    "mean": 0.9230769230769231,
+    "good_ratio": 0.4230769230769231
+  },
+  "trajectory_correct_rate": 0.4666666666666667,
+  "avg_subqueries": 0.5333333333333333,
+  "avg_db_searches": 0.5333333333333333,
+  "avg_web_searches": 0.13333333333333333,
+  "avg_retries": 0.03333333333333333,
+  "latency": {
+    "p50_ms": 7640.832648001378,
+    "p95_ms": 53023.185124009615
+  },
+  "token_usage": {
+    "available_count": 0,
+    "mean": null
+  },
+  "by_primary_category": {
+    "simple_single_hop": {
+      "case_count": 5,
+      "task_success_rate": 0.8,
+      "planning_quality": {
+        "applicable_count": 5,
+        "mean": 2,
+        "good_ratio": 1.0
+      },
+      "trajectory_correct_rate": 1
+    },
+    "rewrite_needed": {
+      "case_count": 5,
+      "task_success_rate": 0,
+      "planning_quality": {
+        "applicable_count": 5,
+        "mean": 0.2,
+        "good_ratio": 0.0
+      },
+      "trajectory_correct_rate": 0.2
+    },
+    "decompose_multi_intent": {
+      "case_count": 5,
+      "task_success_rate": 0.4,
+      "planning_quality": {
+        "applicable_count": 5,
+        "mean": 1,
+        "good_ratio": 0.4
+      },
+      "trajectory_correct_rate": 0.4
+    },
+    "clarification_needed": {
+      "case_count": 4,
+      "task_success_rate": 0.75,
+      "planning_quality": {
+        "applicable_count": 0,
+        "mean": null,
+        "good_ratio": null
+      },
+      "trajectory_correct_rate": 1
+    },
+    "kb_sufficient_no_web": {
+      "case_count": 4,
+      "task_success_rate": 0.5,
+      "planning_quality": {
+        "applicable_count": 4,
+        "mean": 2,
+        "good_ratio": 1.0
+      },
+      "trajectory_correct_rate": 0.5
+    },
+    "kb_insufficient_web": {
+      "case_count": 3,
+      "task_success_rate": 0,
+      "planning_quality": {
+        "applicable_count": 3,
+        "mean": 0,
+        "good_ratio": 0.0
+      },
+      "trajectory_correct_rate": 0
+    },
+    "multi_turn_context": {
+      "case_count": 4,
+      "task_success_rate": 0,
+      "planning_quality": {
+        "applicable_count": 4,
+        "mean": 0,
+        "good_ratio": 0.0
+      },
+      "trajectory_correct_rate": 0
+    }
+  }
+}

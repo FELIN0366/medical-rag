@@ -218,7 +218,8 @@ def route_to_subgraphs(state: MedicalAgentState) -> List[Send]:
     return [Send("search_one", {"query": q}) for q in queries]
 
 
-def search_one(task_input: dict, search_graph: SearchGraph) -> dict:
+def search_one(task_input: dict, search_graph: SearchGraph, local_trace_collector=None,
+               local_trace_context: dict | None = None) -> dict:
     """
     单个子查询的执行节点，由 Send 调度，可并行运行多个实例。
     返回值通过 sub_query_results 的 add reducer 自动合并到主状态。
@@ -232,6 +233,13 @@ def search_one(task_input: dict, search_graph: SearchGraph) -> dict:
         "summary": "",
         "retry": search_graph.config.agent.max_attempts,
         "final": "",
+        "retrieval_info": {},
+        "web_search_count": 0,
+        "web_search_status": {},
+        "judge_retry_count": 0,
+        "node_events": [],
+        "local_trace_collector": local_trace_collector,
+        "local_trace_context": dict(local_trace_context or {}),
     }
     result = search_graph.run(init_state)
     return {"sub_query_results": [result]}
@@ -333,7 +341,9 @@ def gather_answer(state: MedicalAgentState, llm: BaseChatModel) -> MedicalAgentS
     # 注意：background_info 刻意保留，不清空，供下一轮 check_update_background 使用
     state["ask_obj"] = None
 
-    return state
+    # ``sub_query_results`` 使用 add reducer；回传完整状态会把已聚合结果再追加一次，
+    # 因此汇总节点必须省略该字段以保持子查询、工具和效率计数准确。
+    return {key: value for key, value in state.items() if key != "sub_query_results"}
 
 
 # ===================== MedicalAgent 主类 =====================
@@ -344,45 +354,75 @@ class MedicalAgent:
         self.power_model = power_model
         self.normal_llm = create_llm_client(self.config.llm) # 普通生成模型，用于追问、抽取背景、更新背景、最终汇总
         self.search_graph = SearchGraph(self.config, power_model) # 用于真正执行检索、联网、RAG 和事实校验
+        self.local_trace_collector = None
+        self.local_trace_context: dict[str, str | int] = {}
+        self._turn_index = 0
         self.build_graph()
 
     def build_graph(self):
         g = StateGraph(MedicalAgentState)
 
-        g.add_node("ask",                    partial(ask_judge,               llm=self.normal_llm))
-        g.add_node("extract_ask_and_reply",  partial(extract_background_info, llm=self.normal_llm))
-        g.add_node("check_update_background", partial(check_update_background, llm=self.normal_llm))
-        g.add_node("split_query",            partial(judge_split_query,       llm=self.power_model))
-        g.add_node("search_one",             partial(search_one,              search_graph=self.search_graph))
-        g.add_node("answer",                 partial(gather_answer,           llm=self.normal_llm))
+        g.add_node("clarification", self._wrap_node("clarification", partial(ask_judge, llm=self.normal_llm)))
+        g.add_node("background_update", self._wrap_node("background_update", partial(extract_background_info, llm=self.normal_llm)))
+        g.add_node("check_update_background", self._wrap_node("background_update", partial(check_update_background, llm=self.normal_llm)))
+        g.add_node("split_query", self._wrap_node("split_query", partial(judge_split_query, llm=self.power_model)))
+        g.add_node("search_one", self._search_one_node)
+        g.add_node("gather_answer", self._wrap_node("gather_answer", partial(gather_answer, llm=self.normal_llm)))
 
         # START → 条件路由：有背景则跳过追问
         g.add_conditional_edges(
             START, 
             route_entry, 
             {
-            "ask": "ask",
+            "ask": "clarification",
             "check_update_background": "check_update_background",
         })
 
         g.add_conditional_edges(
-            "ask",
+            "clarification",
             route_ask_again,
             {
                 "ask": END,                       # 需要追问 → 结束本轮，等待用户下一次输入
-                "pass": "extract_ask_and_reply",  # 信息已充分 → 继续后续处理
+                "pass": "background_update",       # 信息已充分 → 继续后续处理
             },
         )
-        g.add_edge("extract_ask_and_reply",   "split_query")
+        g.add_edge("background_update",        "split_query")
         g.add_edge("check_update_background", "split_query")
 
         # Send API：split_query → 并行分发多个 search_one → answer
         g.add_conditional_edges("split_query", route_to_subgraphs, ["search_one"])
-        g.add_edge("search_one", "answer")
-        g.add_edge("answer", END)
+        g.add_edge("search_one", "gather_answer")
+        g.add_edge("gather_answer", END)
 
         self.app = g.compile()
         self._reset_state()
+
+    def _emit_local_trace(self, event: str, **data) -> None:
+        if self.local_trace_collector is not None:
+            self.local_trace_collector.emit(self.local_trace_context, event, **data)
+
+    def _wrap_node(self, event: str, func):
+        def wrapped(state):
+            result = func(state)
+            if event == "clarification":
+                ask_obj = result.get("ask_obj")
+                self._emit_local_trace(event, need_ask=bool(ask_obj and ask_obj.need_ask),
+                                       question_count=len(ask_obj.questions) if ask_obj else 0)
+            elif event == "split_query":
+                split = result.get("sub_query")
+                self._emit_local_trace(event, need_split=bool(split and split.need_split),
+                                       subqueries=list(split.sub_query) if split else [],
+                                       rewritten_query=split.rewrite_query if split else "")
+            elif event == "gather_answer":
+                self._emit_local_trace(event, answer_length=len(result.get("final_answer", "")))
+            else:
+                self._emit_local_trace(event, updated=True)
+            return result
+        return wrapped
+
+    def _search_one_node(self, task_input: dict) -> dict:
+        self._emit_local_trace("search_one", query=task_input.get("query", ""))
+        return search_one(task_input, self.search_graph, self.local_trace_collector, self.local_trace_context)
 
     def _reset_state(self):
         self.state: MedicalAgentState = {
@@ -402,9 +442,22 @@ class MedicalAgent:
             "performance":        [],
         }
 
+    def set_local_trace_collector(self, collector, *, case_id: str, primary_category: str,
+                                  session_id: str, turn_index: int = 0) -> None:
+        """仅供 Stage 4 Eval Runner 注入本地收集器；普通 API 不调用此方法。"""
+        self.local_trace_collector = collector
+        self.local_trace_context = {
+            "case_id": case_id,
+            "primary_category": primary_category,
+            "session_id": session_id,
+            "turn_index": turn_index,
+        }
+
     def answer(self, user_input: str) -> MedicalAgentState:
         self.state["curr_input"] = user_input
         # 每轮 invoke 前重置子查询结果，使 add reducer 从空列表开始积累
         self.state["sub_query_results"] = []
+        self._turn_index += 1
+        self.local_trace_context["turn_index"] = self._turn_index
         self.state = self.app.invoke(self.state)
         return self.state

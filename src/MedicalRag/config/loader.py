@@ -5,12 +5,16 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
+from dotenv import load_dotenv
 from .models import AppConfig
 from typing import Dict, List, Optional, Literal, Any, Union
 from pydantic import BaseModel, Field
 import re
 
 logger = logging.getLogger(__name__)
+
+# 仅加载仓库根目录的本地 .env；已由终端 export 的变量优先，避免覆盖部署环境配置。
+load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
 
 class ConfigLoader:
     """配置加载器"""

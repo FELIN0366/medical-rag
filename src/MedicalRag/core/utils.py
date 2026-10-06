@@ -17,6 +17,9 @@ def create_llm_client(config: LLMConfig) -> BaseChatModel:
         kwargs = {
             "model": config.model,
             "temperature": config.temperature,
+            # 避免远程兼容接口在 Agent Web Router/Judge 中无限等待。
+            "timeout": config.timeout,
+            "max_retries": config.max_retries,
         }
         
         if config.env_key_name:

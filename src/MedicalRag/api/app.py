@@ -628,6 +628,10 @@ async def search_agent(req: SearchAgentRequest):
             "summary": "",
             "retry": agent.config.agent.max_attempts,
             "final": "",
+            "retrieval_info": {},
+            "web_search_count": 0,
+            "judge_retry_count": 0,
+            "node_events": [],
         }
         out_state = agent.search_graph.invoke(init_state)
         answer = out_state.get("final", "") or out_state.get("summary", "") or "（空）"
@@ -720,14 +724,14 @@ async def agent_stream(req: AgentRequest, request: Request):
                     # Emit SSE event based on the completed node
                     event: Optional[dict] = None
 
-                    if node_name == "ask":
+                    if node_name == "clarification":
                         ask_obj = updates.get("ask_obj")
                         if ask_obj and ask_obj.need_ask:
                             event = {"type": "clarification", "questions": ask_obj.questions}
                         else:
                             event = {"type": "progress", "message": "正在分析问题，准备检索..."}
 
-                    elif node_name == "extract_ask_and_reply":
+                    elif node_name == "background_update":
                         bg = updates.get("background_info", "")
                         if bg:
                             yield _sse_line({"type": "background", "data": bg})
@@ -757,7 +761,7 @@ async def agent_stream(req: AgentRequest, request: Request):
                             if docs:
                                 yield _sse_line({"type": "documents", "data": [_doc_to_source(d) for d in docs]})
 
-                    elif node_name == "answer":
+                    elif node_name == "gather_answer":
                         final_answer = updates.get("final_answer", "")
                         event = {"type": "answer", "data": final_answer}
 

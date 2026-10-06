@@ -20,26 +20,106 @@ from langchain_core.runnables import (
     RunnablePassthrough, RunnableParallel, RunnableLambda, RunnableMap
 )
 from functools import partial
+from threading import Thread
+from contextlib import nullcontext
 from .tools import tavily_search
 import logging
 from ..core.utils import create_llm_client
 from ..config.models import AppConfig
-from copy import deepcopy
+from ..retrieval.service import OnlineRetrievalService
 
 logger = logging.getLogger(__name__)
+
+WEB_ROUTER_TIMEOUT_SECONDS = 60
+
+
+def _emit_local_trace(state: dict, event: str, **data) -> None:
+    """只有 Eval Runner 注入收集器时才记录，正常 API Runtime 不持久化轨迹。"""
+    collector = state.get("local_trace_collector")
+    if collector is not None:
+        collector.emit(state.get("local_trace_context"), event, **data)
+
+
+def invoke_with_timeout(callable_obj, timeout_seconds: float):
+    """为不受 SDK timeout 完整约束的同步模型调用提供调用层硬上限。"""
+    result_box = []
+    error_box = []
+
+    def run() -> None:
+        try:
+            result_box.append(callable_obj())
+        except Exception as error:
+            error_box.append(error)
+
+    worker = Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout_seconds)
+    if worker.is_alive():
+        raise TimeoutError(f"调用超过 {timeout_seconds} 秒")
+    if error_box:
+        raise error_box[0]
+    return result_box[0]
 
 def del_think(text):
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
-def json_to_list_document(text: str) -> list:
+def parse_web_search_response(text: str) -> tuple[list[Document], dict | None]:
+    """解析 Web 工具的受控 JSON 返回值，并兼容旧版仅返回文档数组的格式。"""
     if not text or not text.strip():
-        logger.warning("工具返回内容为空，跳过文档解析")
-        return []
+        return [], {"code": "empty_response", "message": "联网搜索未返回内容。"}
     try:
-        return [Document(**d) for d in json.loads(text)]
+        payload = json.loads(text)
     except json.JSONDecodeError:
-        logger.warning(f"工具返回内容非 JSON，跳过文档解析。内容片段：{text[:200]}")
-        return []
+        logger.warning("联网搜索工具返回了无效 JSON，已保留本地检索结果。")
+        return [], {"code": "invalid_response", "message": "联网搜索服务返回格式无效。"}
+
+    # 兼容项目改造前 web_search 直接返回的 Document 数组。
+    if isinstance(payload, list):
+        documents = payload
+    elif isinstance(payload, dict):
+        if not payload.get("ok"):
+            error = payload.get("error") or {}
+            return [], {
+                "code": str(error.get("code", "provider_error")),
+                "message": str(error.get("message", "联网搜索服务暂时不可用。")),
+            }
+        documents = payload.get("documents", [])
+    else:
+        return [], {"code": "invalid_response", "message": "联网搜索服务返回格式无效。"}
+
+    if not isinstance(documents, list):
+        return [], {"code": "invalid_response", "message": "联网搜索文档格式无效。"}
+    try:
+        return [Document(**document) for document in documents], None
+    except (TypeError, ValueError):
+        logger.warning("联网搜索工具返回的文档格式无效，已保留本地检索结果。")
+        return [], {"code": "invalid_document", "message": "联网搜索文档格式无效。"}
+
+
+def json_to_list_document(text: str) -> list:
+    """保留旧函数名，供既有调用方只获取解析后的文档。"""
+    documents, _ = parse_web_search_response(text)
+    return documents
+
+
+def merge_web_tool_responses(tool_messages: list[ToolMessage]) -> tuple[list[Document], list[dict], int]:
+    """消费同一轮全部 web_search ToolMessage，保留所有成功结果并去重。"""
+    documents: list[Document] = []
+    errors: list[dict] = []
+    success_count = 0
+    seen: set[tuple[str, str]] = set()
+    for message in tool_messages:
+        parsed_documents, error = parse_web_search_response(str(message.content))
+        if error is not None:
+            errors.append(error)
+            continue
+        success_count += 1
+        for document in parsed_documents:
+            identity = (str(document.metadata.get("url", "")), document.page_content)
+            if identity not in seen:
+                seen.add(identity)
+                documents.append(document)
+    return documents, errors, success_count
 
 def format_document_str(documents: List[Document]) -> str:
     parts = []
@@ -60,6 +140,14 @@ class SearchMessagesState(TypedDict, total=False):
     retry: int              # 剩余可重试次数
     final: str              # 最终输出
     judge_result: str
+    retrieval_info: dict    # Stage 4：Stage 2 检索主链的可审计信息
+    web_search_count: int
+    web_search_status: dict
+    judge_retry_count: int
+    node_events: List[str]
+    # 仅由 Stage 4 Eval Runner 注入；普通 API Runtime 不提供也不落盘。
+    local_trace_collector: Any
+    local_trace_context: dict
     
     
 class NetworkSearchResult(BaseModel):
@@ -72,30 +160,37 @@ def _should_call_tool(last_ai: BaseMessage) -> bool:
     """ 判断上一步是否触发了工具 """
     return bool(getattr(last_ai, "tool_calls", None))
 
-def llm_db_search(
-    state: SearchMessagesState, 
-    llm: BaseChatModel,
-    db_tool_node: ToolNode,
-    show_debug: bool
+def retrieve(
+    state: SearchMessagesState,
+    retrieval_service: OnlineRetrievalService,
+    show_debug: bool,
 ) -> SearchMessagesState:
-    """ DB 检索节点 可能出发db_tool """
-    query = state["query"]
-    db_ai = llm.invoke([
-        SystemMessage(content=get_prompt_template("call_db")["system"]),
-        HumanMessage(content=get_prompt_template("call_db")["user"].format(query=query))
-    ])
-    state["other_messages"].append(db_ai)
-    if _should_call_tool(db_ai):
-        if show_debug:
-            logger.info(f"开始db检索，检索参数：{db_ai.additional_kwargs['tool_calls'][0]['function']['arguments']}")
-        tool_msgs : ToolMessage = db_tool_node.invoke([db_ai])
-        state["other_messages"].append(tool_msgs)
-        state["docs"].extend(json_to_list_document(tool_msgs[0].content))
-        if show_debug:
-            if len(state["docs"]) >= 2:
-                logger.info(f"部分示例（共{len(state['docs'])}条）：\n\n{state['docs'][0].page_content[:200]}...\n\n{state['docs'][1].page_content[:200]}...")
-            else:
-                logger.info(f"仅检索一条数据：\n\n{state['docs'][0].page_content[:200]}")
+    """唯一在线本地检索节点：Planner → Executor → Reranker → Final Top-5。"""
+    collector = state.get("local_trace_collector")
+    context = state.get("local_trace_context")
+    if collector is None:
+        result = retrieval_service.retrieve(state["query"])
+    else:
+        result = retrieval_service.retrieve(state["query"], trace_collector=collector, trace_context=context)
+    state["docs"] = list(result.documents)
+    state["retrieval_info"] = {
+        "selected_channels": list(result.selected_channels),
+        "planner_error": result.planner_error,
+        "candidate_count": result.candidate_count,
+        "planner_latency_ms": result.planner_latency_ms,
+        "retrieval_latency_ms": result.retrieval_latency_ms,
+        "reranker_latency_ms": result.reranker_latency_ms,
+        "db_search_count": 1,
+    }
+    state.setdefault("node_events", []).extend(["retrieval_planner", "retrieval_executor", "reranker"])
+    _emit_local_trace(state, "retrieval_planner", selected_channels=list(result.selected_channels),
+                      planner_error=result.planner_error, latency_ms=result.planner_latency_ms)
+    _emit_local_trace(state, "retrieval_executor", candidate_count=result.candidate_count,
+                      latency_ms=result.retrieval_latency_ms)
+    _emit_local_trace(state, "reranker", final_count=len(result.documents), latency_ms=result.reranker_latency_ms)
+    if show_debug:
+        logger.info("Stage 2 检索完成：通道=%s，候选=%s，最终=%s", result.selected_channels,
+                    result.candidate_count, len(result.documents))
     return state
 
 
@@ -130,14 +225,20 @@ def llm_network_search(
     ])
     
     # 步骤1：判断是否需要搜索
-    judge_chain = judge_messages | judge_llm | RunnableLambda(lambda x: del_think(x.content)) | fixing_parser  # 使用不绑定工具的LLM
+    judge_chain = judge_messages | judge_llm
     
     try:
         # 执行判断链，直接得到解析后的结果
-        result: NetworkSearchResult = judge_chain.invoke({
-            "query": state['query'],
-            "docs": format_document_str(state.get('docs', []))
-        })
+        collector = state.get("local_trace_collector")
+        context = state.get("local_trace_context")
+        span = (lambda name, **data: collector.span(context, name, **data)) if collector else None
+        with (span("web_judge", provider="deepseek", operation="web_need_judge") if span else nullcontext()):
+            raw_judge = invoke_with_timeout(
+                lambda: judge_chain.invoke({"query": state['query'], "docs": format_document_str(state.get('docs', []))}),
+                WEB_ROUTER_TIMEOUT_SECONDS,
+            )
+        with (span("output_parse_or_fix", provider="deepseek", operation="structured_output_fix") if span else nullcontext()):
+            result: NetworkSearchResult = fixing_parser.parse(del_think(raw_judge.content))
         if show_debug:
             logger.info(f"判断结果: {'需要网络检索' if result.need_search else '不需要网络检索'}, 检索文本：{result.search_query}")
         
@@ -145,13 +246,25 @@ def llm_network_search(
         judge_ai_content = f"分析结果: {result.model_dump()}"
         judge_ai = AIMessage(content=judge_ai_content)
         state["other_messages"].append(judge_ai)
+        state.setdefault("node_events", []).append("web_router")
+        state["web_router"] = {
+            "need_search": result.need_search,
+            "search_query": result.search_query,
+        }
+        _emit_local_trace(state, "web_router", need_search=result.need_search, search_query=result.search_query)
         
     except Exception as e:
-        logger.error(f"JSON解析错误: {e}")
+        is_timeout = isinstance(e, TimeoutError)
+        logger.warning("Web Router %s，使用本地检索结果继续回答。",
+                       "调用超时" if is_timeout else "解析失败")
         # 默认值
         result = NetworkSearchResult(need_search=False, search_query="", remain_doc_index=[])
         judge_ai = AIMessage(content=f"解析失败，使用默认值: {result.model_dump()}")
         state["other_messages"].append(judge_ai)
+        state.setdefault("node_events", []).append("web_router")
+        state["web_router"] = {"need_search": False, "search_query": ""}
+        _emit_local_trace(state, "web_router", need_search=False, search_query="",
+                          parse_error=not is_timeout, timeout=is_timeout)
     
     # 步骤2：如果需要搜索，执行工具调用
     if result.need_search and result.search_query.strip():
@@ -159,28 +272,81 @@ def llm_network_search(
         # 创建搜索链
         search_chain = calling_messages | network_search_llm
         
-        # 执行搜索
-        search_ai = search_chain.invoke({"search_query": result.search_query})
+        # Web Router 是额外能力；请求超时或模型未能发起工具调用都不能打断本地 RAG 主链。
+        try:
+            collector = state.get("local_trace_collector")
+            context = state.get("local_trace_context")
+            span = (lambda name, **data: collector.span(context, name, **data)) if collector else None
+            with (span("web_tool_planner", provider="deepseek", operation="tool_call_plan") if span else nullcontext()):
+                search_ai = invoke_with_timeout(
+                    lambda: search_chain.invoke({"search_query": result.search_query}),
+                    WEB_ROUTER_TIMEOUT_SECONDS,
+                )
+        except Exception as error:
+            error_code = "router_timeout" if "timeout" in type(error).__name__.lower() else "router_error"
+            state["web_search_status"] = {
+                "called": False,
+                "code": error_code,
+                "message": "联网搜索路由暂时不可用，本次回答仅基于本地知识库。",
+            }
+            _emit_local_trace(state, "web_search", called=False, search_query=result.search_query,
+                              result_count=0, error_code=error_code)
+            logger.warning("联网搜索路由失败：%s；继续使用本地检索结果。", type(error).__name__)
+            return state
         state["other_messages"].append(search_ai)
         
         # 检查是否有工具调用
         if _should_call_tool(search_ai):
-            tool_msgs: ToolMessage = network_tool_node.invoke([search_ai])
+            collector = state.get("local_trace_collector")
+            context = state.get("local_trace_context")
+            span = (lambda name, **data: collector.span(context, name, **data)) if collector else nullcontext()
+            with span("tavily_search", provider="tavily", operation="search_and_extract"):
+                tool_msgs: list[ToolMessage] = network_tool_node.invoke([search_ai])
             state["other_messages"].append(tool_msgs)
-            
-            # 更新文档
+            state["web_search_count"] = int(state.get("web_search_count", 0)) + len(tool_msgs)
+            state.setdefault("node_events", []).append("web_search")
+            web_documents, web_errors, success_count = merge_web_tool_responses(tool_msgs)
+            if success_count == 0:
+                web_error = web_errors[0] if web_errors else {
+                    "code": "invalid_response", "message": "联网搜索未返回可解析结果。",
+                }
+                state["web_search_status"] = {"called": True, **web_error, "call_count": len(tool_msgs)}
+                _emit_local_trace(state, "web_search", called=True, search_query=result.search_query,
+                                  result_count=0, call_count=len(tool_msgs), error_code=web_error["code"])
+                logger.warning("联网搜索未获得可用结果（%s），继续使用本地检索结果。", web_error["code"])
+                return state
+
+            state["web_search_status"] = {
+                "called": True,
+                "code": "partial_error" if web_errors else None,
+                "message": "部分联网搜索失败，已使用其余成功结果。" if web_errors else "",
+                "call_count": len(tool_msgs),
+                "success_count": success_count,
+                "error_count": len(web_errors),
+            }
+            _emit_local_trace(state, "web_search", called=True, search_query=result.search_query,
+                              result_count=len(web_documents), call_count=len(tool_msgs),
+                              success_count=success_count, error_count=len(web_errors))
+
+            # 仅在 Web 工具成功返回后更新文档，失败时绝不清空已有本地证据。
             remain_doc = result.remain_doc_index
             if remain_doc:
-                # 过滤有效索引，避免越界
-                valid_indices = [i-1 for i in remain_doc if 0 < i <= len(state.get("docs", []))]
+                valid_indices = [i - 1 for i in remain_doc if 0 < i <= len(state.get("docs", []))]
                 state["docs"] = [state["docs"][i] for i in valid_indices]
             else:
-                state["docs"] = []  # 如果没有指定保留文档，清空原文档
-                
-            # 添加新搜索到的文档
-            state["docs"].extend(json_to_list_document(tool_msgs[0].content))
+                state["docs"] = []
+            state["docs"].extend(web_documents)
             if show_debug:
-                logger.info(f"网络检索完毕")
+                logger.info("网络检索完成，获得 %s 条文档。", len(web_documents))
+        else:
+            state["web_search_status"] = {
+                "called": False,
+                "code": "tool_not_called",
+                "message": "联网搜索路由未发起工具调用，本次回答仅基于本地知识库。",
+            }
+            _emit_local_trace(state, "web_search", called=False, search_query=result.search_query,
+                              result_count=0, error_code="tool_not_called")
+            logger.warning("联网搜索路由未发起工具调用；继续使用本地检索结果。")
     else:
         if show_debug:
             logger.info(f"信息完整，无需网络搜索...")
@@ -206,7 +372,10 @@ def rag(
         ))
     ]
     
-    rag_ai = llm.invoke(prompt)
+    collector = state.get("local_trace_collector")
+    context = state.get("local_trace_context")
+    with (collector.span(context, "rag_generate", provider="deepseek", operation="generate") if collector else nullcontext()):
+        rag_ai = llm.invoke(prompt)
     rag_ai.content = del_think(rag_ai.content)
     if not isinstance(state["main_messages"][-1], AIMessage):
         # 上一轮rag生成合格
@@ -216,6 +385,8 @@ def rag(
         state["main_messages"].pop()
         state["main_messages"].append(rag_ai)
     state["summary"] = rag_ai.content
+    state.setdefault("node_events", []).append("rag_generate")
+    _emit_local_trace(state, "rag_generate", answer_length=len(rag_ai.content or ""))
     return state
 
 
@@ -227,47 +398,53 @@ def judge(
     """判断节点：负责判断和修改状态"""
     if show_debug:
         logger.info(f"开始评估...")
-    judge_ai = llm.invoke([
-        SystemMessage(content=get_prompt_template("judge_rag")["system"]),
-        HumanMessage(content=get_prompt_template("judge_rag")["user"].format(
-            format_document_str=format_document_str(state.get('docs', [])),
-            query=state['query'],
-            summary=state.get('summary', '')
-        ))
-    ])
+    collector = state.get("local_trace_collector")
+    context = state.get("local_trace_context")
+    with (collector.span(context, "judge", provider="deepseek", operation="answer_judge") if collector else nullcontext()):
+        judge_ai = llm.invoke([
+            SystemMessage(content=get_prompt_template("judge_rag")["system"]),
+            HumanMessage(content=get_prompt_template("judge_rag")["user"].format(
+                format_document_str=format_document_str(state.get('docs', [])),
+                query=state['query'],
+                summary=state.get('summary', '')
+            ))
+        ])
     result = del_think(judge_ai.content or "").strip().lower()
     if show_debug:
         logger.info(f"评估结果{result[:20]}")
     state["other_messages"].append(AIMessage(content=f"[JUDGE]={result}"))
+    state.setdefault("node_events", []).append("judge")
+    _emit_local_trace(state, "judge", raw_result=result)
     
     # 在这里修改状态
     if 'y' in result: 
         state["judge_result"] = "pass"
     else:
         retries_left = int(state.get("retry", 0)) 
-        if retries_left > 0: 
+        if retries_left > 0:
             state["retry"] = retries_left - 1  # 状态修改会被保存
+            state["judge_retry_count"] = int(state.get("judge_retry_count", 0)) + 1
             state["judge_result"] = "retry"
         else: 
             state["judge_result"] = "fail"
+    _emit_local_trace(state, "judge_result", result=state["judge_result"],
+                      retry_count=state.get("judge_retry_count", 0))
     
     return state
 
 
 class SearchGraph:
-    def __init__(self, config: AppConfig, power_model: BaseChatModel, websearch_func=tavily_search) -> None:
+    def __init__(self, config: AppConfig, power_model: BaseChatModel, websearch_func=tavily_search,
+                 retrieval_service: OnlineRetrievalService | None = None) -> None:
         self.config = config
         self.agent_tools = AgentTools(self.config)
         self.agent_tools.register_websearch(websearch_func)
-        self.db_search_tool = self.agent_tools.make_database_search_tool()
         self.network_search_tool = self.agent_tools.make_web_search_tool()
         
         # bind_tools() 返回新的 RunnableBinding，不修改原模型，无需 deepcopy
-        self.db_search_llm = power_model.bind_tools([self.db_search_tool])
         self.network_search_llm = power_model.bind_tools([self.network_search_tool])
         self.llm = create_llm_client(self.config.llm)
-
-        self.db_tool_node = ToolNode([self.db_search_tool])
+        self.retrieval_service = retrieval_service or OnlineRetrievalService(self.config, power_model)
         self.network_tool_node = ToolNode([self.network_search_tool])
         self.search_graph = None
 
@@ -294,13 +471,12 @@ class SearchGraph:
         g = StateGraph(SearchMessagesState)
 
         # 原子节点
-        db_search_node = partial(
-            llm_db_search,
-            llm=self.db_search_llm,
-            db_tool_node=self.db_tool_node,
+        retrieve_node = partial(
+            retrieve,
+            retrieval_service=self.retrieval_service,
             show_debug=self.config.multi_dialogue_rag.console_debug
         )
-        g.add_node("db_search", db_search_node)
+        g.add_node("retrieve", retrieve_node)
         network_search_node = partial(
             llm_network_search,
             judge_llm=self.llm,
@@ -324,14 +500,14 @@ class SearchGraph:
         )
         g.add_node("judge", judge_node)
         # 入口
-        g.set_entry_point("db_search")
+        g.set_entry_point("retrieve")
 
-        # db_search -> web_search
+        # retrieve -> web_search
         if self.config.agent.network_search_enabled:
-            g.add_edge("db_search", "web_search")
+            g.add_edge("retrieve", "web_search")
             g.add_edge("web_search", "rag")
         else:
-            g.add_edge("db_search", "rag")
+            g.add_edge("retrieve", "rag")
         
         # rag -> judge_router（条件分支）
         # judge -> 条件路由
@@ -365,14 +541,19 @@ class SearchGraph:
             "docs": [],
             "summary": "",
             "retry": self.config.agent.max_attempts,
-            "final": ""
+            "final": "",
+            "retrieval_info": {},
+            "web_search_count": 0,
+            "web_search_status": {},
+            "judge_retry_count": 0,
+            "node_events": [],
         }
         # 执行图
-        out_state: SearchMessagesState = self.search_graph.invoke(init_state)
+        out_state: SearchMessagesState = self.search_graph.invoke(init_state, {"run_name": "search_graph"})
         return out_state.get("final", "") or out_state.get("summary", "") or "（空）"
     
     def run(self, init_state: SearchMessagesState) -> SearchMessagesState:
         if self.search_graph is None:
             self.build_search_graph()
-        out_state: SearchMessagesState = self.search_graph.invoke(init_state)
+        out_state: SearchMessagesState = self.search_graph.invoke(init_state, {"run_name": "search_graph"})
         return out_state
