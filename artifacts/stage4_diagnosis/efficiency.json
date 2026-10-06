@@ -1,12 +1,12 @@
 {
-  "case_count": 1,
-  "avg_subqueries": 1.0,
-  "avg_db_searches": 1.0,
-  "avg_web_searches": 0.0,
-  "avg_retries": 1.0,
+  "case_count": 30,
+  "avg_subqueries": 0.5666666666666667,
+  "avg_db_searches": 0.5666666666666667,
+  "avg_web_searches": 0.23333333333333334,
+  "avg_retries": 0.06666666666666667,
   "latency": {
-    "p50_ms": 54533.54346200649,
-    "p95_ms": 54533.54346200649
+    "p50_ms": 10589.038363003056,
+    "p95_ms": 83036.51136200642
   },
   "token_usage": {
     "available_count": 0,
